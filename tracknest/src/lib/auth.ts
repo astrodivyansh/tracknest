@@ -98,6 +98,7 @@ export type CurrentUser = {
   currency: string;
   fyStartMonth: number;
   logoVersion: string | null; // changes with each upload, for the /logo URL
+  setupStep: number; // lib/wizard.ts
   disabled: string[]; // features the org turned off
   perms: string[] | null; // the user's security group; null = no group
 };
@@ -119,6 +120,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       fyStartMonth: organizations.fyStartMonth,
       logoVersion: sql<string | null>`right(${organizations.logoKey}, 8)`,
       disabled: organizations.disabledFeatures,
+      setupStep: organizations.setupStep,
       groupId: users.groupId,
     })
     .from(sessions)

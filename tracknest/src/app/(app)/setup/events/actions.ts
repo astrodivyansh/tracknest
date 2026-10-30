@@ -7,13 +7,13 @@ import { withOrg } from "@/db";
 import { customEvents, organizations } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { fields, handle, reqText, type FormState } from "@/lib/form";
-import { ACTION_KEYS, ACTIONS } from "@/lib/permissions";
+import { ACTION_KEYS, ACTIONS, EVENT_SWITCH_KEYS } from "@/lib/permissions";
 
 export async function saveFeatures(_: FormState, form: FormData): Promise<FormState> {
   return handle(async () => {
     const user = await requireUser("admin");
     const on = new Set(form.getAll("on").map(String));
-    const disabledFeatures = ACTION_KEYS.filter((a) => ACTIONS[a].feature && !on.has(a));
+    const disabledFeatures = [...ACTION_KEYS.filter((a) => ACTIONS[a].feature), ...EVENT_SWITCH_KEYS].filter((a) => !on.has(a));
     await withOrg(user.orgId, (tx) => tx.update(organizations).set({ disabledFeatures }).where(eq(organizations.id, user.orgId)));
     revalidatePath("/", "layout");
     return { ok: "Saved." };

@@ -51,7 +51,7 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
       return user.id;
     });
     await startSession(userId);
-    redirect("/dashboard");
+    redirect("/wizard");
   });
 }
 

@@ -46,6 +46,9 @@ export default async function SetupPage() {
         )}
         {isAdmin && (
           <span className="ml-4 space-x-4 text-sm">
+            <Link href="/wizard" className="text-primary hover:underline">
+              Setup wizard →
+            </Link>
             <Link href="/setup/company" className="text-primary hover:underline">
               Company settings →
             </Link>

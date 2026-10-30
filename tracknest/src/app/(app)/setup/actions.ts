@@ -11,13 +11,26 @@ import { HAS_OPTIONS } from "@/lib/custom-fields";
 import { DEP_LABEL, NEEDS_LIFE } from "@/lib/depreciation";
 import { fields, handle, optId, optText, reqText, type FormState } from "@/lib/form";
 
+const siteSchema = z.object({ name: reqText("Site name"), description: optText, address: optText, suite: optText, city: optText, state: optText, postalCode: optText, country: optText });
+
 export async function addSite(_: FormState, form: FormData): Promise<FormState> {
   return handle(async () => {
     const user = await requireUser("admin");
-    const input = z.object({ name: reqText("Site name"), address: optText }).parse(fields(form));
+    const input = siteSchema.parse(fields(form));
     await withOrg(user.orgId, (tx) => tx.insert(sites).values({ orgId: user.orgId, ...input }));
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: `Site “${input.name}” added.` };
+  });
+}
+
+export async function updateSite(id: string, _: FormState, form: FormData): Promise<FormState> {
+  return handle(async () => {
+    const user = await requireUser("admin");
+    const input = siteSchema.parse(fields(form));
+    const [row] = await withOrg(user.orgId, (tx) => tx.update(sites).set(input).where(eq(sites.id, id)).returning({ id: sites.id }));
+    if (!row) throw new CustodyError("Not found.");
+    revalidatePath("/", "layout");
+    return { ok: "Site saved." };
   });
 }
 
@@ -26,7 +39,7 @@ export async function addLocation(_: FormState, form: FormData): Promise<FormSta
     const user = await requireUser("admin");
     const input = z.object({ name: reqText("Location name"), siteId: z.uuid("Pick a site") }).parse(fields(form));
     await withOrg(user.orgId, (tx) => tx.insert(locations).values({ orgId: user.orgId, ...input }));
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: `Location “${input.name}” added.` };
   });
 }
@@ -43,7 +56,7 @@ export async function addCategory(_: FormState, form: FormData): Promise<FormSta
       }
       await tx.insert(categories).values({ orgId: user.orgId, ...input });
     });
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: `Category “${input.name}” added.` };
   });
 }
@@ -53,7 +66,7 @@ export async function addDepartment(_: FormState, form: FormData): Promise<FormS
     const user = await requireUser("admin");
     const input = z.object({ name: reqText("Department name") }).parse(fields(form));
     await withOrg(user.orgId, (tx) => tx.insert(departments).values({ orgId: user.orgId, ...input }));
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: `Department “${input.name}” added.` };
   });
 }
@@ -69,7 +82,7 @@ export async function renameItem(kind: SetupKind, id: string, _: FormState, form
     const t = TABLES[kind];
     const [row] = await withOrg(user.orgId, (tx) => tx.update(t).set({ name }).where(eq(t.id, id)).returning({ id: t.id }));
     if (!row) throw new CustodyError("Not found.");
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: "Renamed." };
   });
 }
@@ -80,7 +93,7 @@ export async function removeItem(kind: SetupKind, id: string): Promise<FormState
     const user = await requireUser("admin");
     const t = TABLES[kind];
     await withOrg(user.orgId, (tx) => tx.delete(t).where(eq(t.id, id)));
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
   });
 }
 
@@ -117,7 +130,7 @@ export async function setDepreciationRule(categoryId: string, _: FormState, form
             depRatePct: input.depMethod === "declining" ? input.depRatePct : null,
           };
     await withOrg(user.orgId, (tx) => tx.update(categories).set(rule).where(eq(categories.id, categoryId)));
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: "Rule saved." };
   });
 }
@@ -151,7 +164,7 @@ export async function addCustomField(_: FormState, form: FormData): Promise<Form
         remindDays: input.type === "date" ? input.remindDays : null,
       }),
     );
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: `Field “${input.label}” added.` };
   });
 }
@@ -161,7 +174,7 @@ export async function removeCustomField(fieldId: string): Promise<FormState> {
   return handle(async () => {
     const user = await requireUser("admin");
     await withOrg(user.orgId, (tx) => tx.delete(customFields).where(eq(customFields.id, fieldId)));
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
   });
 }
 
@@ -178,7 +191,7 @@ export async function setFieldReminder(fieldId: string, _: FormState, form: Form
     await withOrg(user.orgId, (tx) =>
       tx.update(customFields).set({ remindDays }).where(and(eq(customFields.id, fieldId), eq(customFields.type, "date"))),
     );
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: remindDays === null ? "Reminder off." : `Reminder set to ${remindDays} days before.` };
   });
 }
@@ -200,7 +213,7 @@ export async function updateCustomField(fieldId: string, _: FormState, form: For
         .set({ label: input.label, ...(HAS_OPTIONS.includes(f.type) && { options }) })
         .where(eq(customFields.id, fieldId));
     });
-    revalidatePath("/setup");
+    revalidatePath("/", "layout"); // both Setup and the wizard show these
     return { ok: "Field saved." };
   });
 }

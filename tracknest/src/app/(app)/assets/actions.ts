@@ -8,7 +8,7 @@ import { withOrg, type Tx } from "@/db";
 import { ASSET_STATUSES, assets, customEvents, customFields, MAINTENANCE_KINDS, organizations } from "@/db/schema";
 import { applyFormSetup } from "@/lib/asset-form-setup";
 import { requireUser, type CurrentUser } from "@/lib/auth";
-import { allow, BULK_ACTION } from "@/lib/permissions";
+import { allow, BULK_ACTION, disposalOn, statusOn } from "@/lib/permissions";
 import {
   archiveAsset,
   changeStatus,
@@ -146,6 +146,7 @@ export async function changeStatusAction(assetId: string, _: FormState, form: Fo
   return handle(async () => {
     const user = allow(await requireUser("manager"), "dispose");
     const input = z.object({ to: z.enum(ASSET_STATUSES, "Choose an action"), reason: optText }).parse(fields(form));
+    if (!statusOn(user, input.to)) throw new CustodyError("That event is turned off for your organization.");
     await withOrg(user.orgId, (tx) => changeStatus(tx, actorOf(user), { assetId, ...input }));
     revalidatePath(`/assets/${assetId}`);
     return { ok: "Status updated." };
@@ -206,6 +207,7 @@ export async function disposeAction(assetId: string, _: FormState, form: FormDat
         reason: reqText("Reason"),
       })
       .parse(fields(form));
+    if (!disposalOn(user, input.method)) throw new CustodyError("That way of disposing is turned off for your organization.");
     await withOrg(user.orgId, (tx) =>
       changeStatus(tx, actorOf(user), {
         assetId,
@@ -296,6 +298,7 @@ export async function bulkAction(kind: BulkKind, assetIds: string[], _: FormStat
           const i = z
             .object({ method: z.enum(["sold", "scrapped", "donated", "written_off"], "Choose how they were disposed of"), on: z.iso.date("Pick the disposal date"), reason: reqText("Reason") })
             .parse(f);
+          if (!disposalOn(user, i.method)) throw new CustodyError("That way of disposing is turned off for your organization.");
           return (tx, assetId) => changeStatus(tx, actor, { assetId, to: "disposed", reason: i.reason, disposal: { on: i.on, method: i.method } });
         }
         default:

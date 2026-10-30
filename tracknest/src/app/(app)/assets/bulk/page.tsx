@@ -10,7 +10,7 @@ import { requireUser } from "@/lib/auth";
 import { DISPOSAL_LABEL, orgClock, STATUS_LABEL } from "@/lib/custody";
 import { BULK, type BulkKind } from "@/lib/labels";
 import { getLookups } from "@/lib/lookups";
-import { can } from "@/lib/permissions";
+import { can, disposalOn } from "@/lib/permissions";
 import { btn, card, h1, input, label, STATUS_BADGE } from "@/lib/ui";
 import { bulkAction } from "../actions";
 
@@ -151,11 +151,13 @@ export default async function BulkPage({ searchParams }: PageProps<"/assets/bulk
             <option value="" disabled>
               Choose…
             </option>
-            {Object.entries(DISPOSAL_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
+            {(Object.keys(DISPOSAL_LABEL) as (keyof typeof DISPOSAL_LABEL)[])
+              .filter((k) => disposalOn(user, k))
+              .map((k) => (
+                <option key={k} value={k}>
+                  {DISPOSAL_LABEL[k]}
+                </option>
+              ))}
           </select>
         </label>
         <label className={label}>

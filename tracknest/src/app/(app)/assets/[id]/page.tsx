@@ -11,7 +11,7 @@ import { HolderSelect } from "@/components/holder-select";
 import { MaintenanceList } from "@/components/maintenance-list";
 import { ReservationList } from "@/components/reservation-list";
 import { appOrigin, canEdit, requireUser } from "@/lib/auth";
-import { can, featureOn } from "@/lib/permissions";
+import { can, disposalOn, featureOn, statusOn } from "@/lib/permissions";
 import { DISPOSAL_LABEL, orgClock, STATUS_LABEL, STATUS_MOVES } from "@/lib/custody";
 import { describeEvent, EVENT_LABEL, fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { appliesTo, showCustom } from "@/lib/custom-fields";
@@ -116,8 +116,9 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
   const { a, open, events, jobs, lookups } = data;
   if (!can(user, "lease")) lookups.customers = []; // leasing off, or not allowed: no customers to check out to
   const inWorkshop = jobs.some((j) => j.state === "in_progress");
-  const otherMoves = STATUS_MOVES[a.status].filter((m) => m.to !== "disposed"); // disposal has its own form
-  const canDispose = STATUS_MOVES[a.status].some((m) => m.to === "disposed");
+  const otherMoves = STATUS_MOVES[a.status].filter((m) => m.to !== "disposed" && statusOn(user, m.to)); // disposal has its own form
+  const disposalMethods = (Object.keys(DISPOSAL_LABEL) as (keyof typeof DISPOSAL_LABEL)[]).filter((k) => disposalOn(user, k));
+  const canDispose = disposalMethods.length > 0 && STATUS_MOVES[a.status].some((m) => m.to === "disposed");
   const tz = user.timezone;
 
   const origin = await appOrigin();
@@ -427,9 +428,9 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                   <option value="" disabled>
                     Choose…
                   </option>
-                  {Object.entries(DISPOSAL_LABEL).map(([k, v]) => (
+                  {disposalMethods.map((k) => (
                     <option key={k} value={k}>
-                      {v}
+                      {DISPOSAL_LABEL[k]}
                     </option>
                   ))}
                 </select>

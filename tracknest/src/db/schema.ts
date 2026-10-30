@@ -42,6 +42,7 @@ export const organizations = pgTable("organizations", {
   logoKey: text("logo_key"), // storage key (lib/storage.ts)
   disabledFeatures: jsonb("disabled_features").$type<string[]>().notNull().default([]), // lib/permissions.ts ACTIONS
   assetForm: jsonb("asset_form").$type<AssetFormSetup>().notNull().default({}), // lib/asset-form-setup.ts
+  setupStep: integer("setup_step").notNull().default(1), // furthest wizard step reached; past the last = finished (lib/wizard.ts)
   createdAt: createdAt(),
 });
 
@@ -150,7 +151,13 @@ export const sites = pgTable("sites", {
   id: id(),
   orgId: orgId(),
   name: text("name").notNull(),
+  description: text("description"),
   address: text("address"),
+  suite: text("suite"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  country: text("country"),
   createdAt: createdAt(),
 });
 
