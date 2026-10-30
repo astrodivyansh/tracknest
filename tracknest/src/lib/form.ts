@@ -21,11 +21,19 @@ export async function handle(fn: () => Promise<FormState | void>): Promise<FormS
   try {
     return (await fn()) ?? undefined;
   } catch (e) {
-    if (e instanceof CustodyError) return { error: e.message };
-    if (e instanceof z.ZodError) return { error: e.issues[0].message };
-    if ((e as { cause?: { code?: string } })?.cause?.code === "23505") {
-      return { error: "That value is already in use (for example the asset tag or email)." };
-    }
-    throw e;
+    return failure(e);
+  } finally {
+    // Email any events the action recorded (also after redirects). Imported lazily: it needs the request.
+    await (await import("./event-mail")).afterAction();
   }
+}
+
+function failure(e: unknown): FormState {
+  if (e instanceof CustodyError) return { error: e.message };
+  if (e instanceof z.ZodError) return { error: e.issues[0].message };
+  const code = (e as { cause?: { code?: string } })?.cause?.code;
+  if (code === "23505") return { error: "That value is already in use (for example the asset tag or email)." };
+  if (code === "23P01") return { error: "Those dates overlap another reservation." };
+  if (code === "23503") return { error: "It's still in use (by assets, people, locations or history), so it can't be removed." };
+  throw e;
 }

@@ -19,14 +19,14 @@ export default async function HistoryPage({ searchParams }: PageProps<"/history"
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className={h1}>Check-in / check-out history</h1>
-          <p className="text-sm text-gray-600">Every custody change and edit across your organization. Permanent and read-only.</p>
+          <p className="text-sm text-muted-foreground">Every custody change and edit across your organization. Permanent and read-only.</p>
         </div>
         <a href={exportHref} className={btnSecondary}>
           Export CSV
         </a>
       </div>
 
-      <form className="grid gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:grid-cols-6 sm:items-end">
+      <form className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-6 sm:items-end">
         <label className={label}>
           From
           <input type="date" name="from" defaultValue={f.from} className={input} />
@@ -57,9 +57,9 @@ export default async function HistoryPage({ searchParams }: PageProps<"/history"
         <button className={btnSecondary}>Apply</button>
       </form>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-muted/50">
             <tr>
               <th className={th}>When</th>
               <th className={th}>Asset</th>
@@ -68,12 +68,12 @@ export default async function HistoryPage({ searchParams }: PageProps<"/history"
               <th className={th}>By</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-border">
             {rows.map((e) => (
               <tr key={e.id}>
                 <td className={`${td} whitespace-nowrap`}>{fmtDateTime(e.occurredAt, user.timezone)}</td>
                 <td className={td}>
-                  <Link href={`/assets/${e.assetId}`} className="font-mono text-indigo-600 hover:underline">
+                  <Link href={`/assets/${e.assetId}`} className="font-mono text-primary hover:underline">
                     {e.assetTag}
                   </Link>{" "}
                   {e.assetName}
@@ -85,7 +85,7 @@ export default async function HistoryPage({ searchParams }: PageProps<"/history"
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className={`${td} text-gray-500`}>
+                <td colSpan={5} className={`${td} text-muted-foreground`}>
                   No history matches these filters.
                 </td>
               </tr>
@@ -94,7 +94,7 @@ export default async function HistoryPage({ searchParams }: PageProps<"/history"
         </table>
       </div>
       {rows.length === PAGE_LIMIT && (
-        <p className="text-sm text-gray-600">Showing the latest {PAGE_LIMIT}. Narrow the dates or export CSV for everything.</p>
+        <p className="text-sm text-muted-foreground">Showing the latest {PAGE_LIMIT}. Narrow the dates or export CSV for everything.</p>
       )}
     </>
   );

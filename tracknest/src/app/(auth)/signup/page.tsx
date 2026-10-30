@@ -49,9 +49,9 @@ export default function SignupPage() {
         </div>
         <button className={`${btn} w-full`}>Create organization</button>
       </ActionForm>
-      <p className="mt-4 text-center text-sm text-gray-600">
+      <p className="mt-4 text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-indigo-600">
+        <Link href="/login" className="font-medium text-primary">
           Sign in
         </Link>
       </p>

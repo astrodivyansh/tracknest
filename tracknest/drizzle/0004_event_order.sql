@@ -1,0 +1,1 @@
+ALTER TABLE "asset_events" ALTER COLUMN "occurred_at" SET DEFAULT clock_timestamp();

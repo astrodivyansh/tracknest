@@ -1,0 +1,7 @@
+# HTTPS certificates are obtained and renewed automatically for $DOMAIN.
+{$DOMAIN} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# Caddy ignores X-Forwarded-For sent by clients and sets the real one, which sign-in rate limiting relies on.
+	reverse_proxy app:3000
+}

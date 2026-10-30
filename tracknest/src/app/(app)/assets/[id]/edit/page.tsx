@@ -4,10 +4,11 @@ import { z } from "zod";
 import { withOrg } from "@/db";
 import { assets } from "@/db/schema";
 import { AssetForm } from "@/components/asset-form";
-import { requireUser } from "@/lib/auth";
+import { ActionForm } from "@/components/action-form";
+import { isAdmin, requireUser } from "@/lib/auth";
 import { getLookups } from "@/lib/lookups";
-import { card, h1 } from "@/lib/ui";
-import { updateAsset } from "../../actions";
+import { btnSecondary, card, h1, h2, input } from "@/lib/ui";
+import { archiveAssetAction, updateAsset } from "../../actions";
 
 export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/edit">) {
   const user = await requireUser("manager");
@@ -26,6 +27,20 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
       <section className={card}>
         <AssetForm action={updateAsset.bind(null, id)} lookups={lookups} values={asset} submitLabel="Save changes" />
       </section>
+      {isAdmin(user) && (
+        <details className={card}>
+          <summary className="cursor-pointer text-sm font-medium text-red-700 dark:text-red-400">Archive this asset</summary>
+          <h2 className={`${h2} mt-3`}>Added by mistake, or a duplicate?</h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Archiving hides it from lists and reports. Its history is kept and its tag can&apos;t be reused. If the asset was sold,
+            scrapped or written off, use “Dispose” on the asset page instead.
+          </p>
+          <ActionForm action={archiveAssetAction.bind(null, id)} className="flex flex-wrap gap-2">
+            <input name="reason" required placeholder="Reason, e.g. duplicate of TN-000123" aria-label="Reason" className={`${input} max-w-md`} />
+            <button className={`${btnSecondary} text-red-700 dark:text-red-400`}>Archive asset</button>
+          </ActionForm>
+        </details>
+      )}
     </>
   );
 }

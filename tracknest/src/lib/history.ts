@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, ilike, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Tx } from "@/db";
-import { assetEvents, assets, EVENT_TYPES, type EventType } from "@/db/schema";
+import { assetEvents, assets, checkouts, EVENT_TYPES, type EventType, type HolderType } from "@/db/schema";
 import { endOfDayIn, startOfDayIn } from "./format";
 
 export type HistoryFilters = { from?: string; to?: string; type?: string; q?: string; holder?: string };
@@ -42,4 +42,27 @@ export function listEvents(tx: Tx, f: HistoryFilters, tz: string, limit: number)
     .where(and(...where))
     .orderBy(desc(assetEvents.occurredAt))
     .limit(limit);
+}
+
+/** Every check-out to one holder (person, location or department), newest first. Rows for components/custody-table.tsx. */
+export function checkoutsFor(tx: Tx, holderType: HolderType, holderId: string) {
+  return tx
+    .select({
+      id: checkouts.id,
+      assetId: assets.id,
+      assetTag: assets.tag,
+      assetName: assets.name,
+      holderName: checkouts.holderName,
+      checkedOutAt: checkouts.checkedOutAt,
+      dueAt: checkouts.dueAt,
+      checkedInAt: checkouts.checkedInAt,
+      outCondition: checkouts.outCondition,
+      inCondition: checkouts.inCondition,
+      state: checkouts.state,
+      overdue: sql<boolean>`${checkouts.state} = 'open' and ${checkouts.dueAt} < now()`,
+    })
+    .from(checkouts)
+    .innerJoin(assets, eq(assets.id, checkouts.assetId))
+    .where(and(eq(checkouts.holderType, holderType), eq(checkouts.holderId, holderId)))
+    .orderBy(desc(checkouts.checkedOutAt));
 }
