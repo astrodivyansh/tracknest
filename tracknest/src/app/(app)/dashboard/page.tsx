@@ -1,13 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { and, asc, between, count, eq, inArray, isNull, lt, lte, ne, sql, sum } from "drizzle-orm";
 import { db, withOrg } from "@/db";
 import { assets, categories, checkouts, maintenance, reservations, users, warranties } from "@/db/schema";
 import { AlertCalendar, type CalendarItem } from "@/components/dashboard/alert-calendar";
 import { Feeds, type FeedItem } from "@/components/dashboard/feeds";
 import { ValueChart } from "@/components/dashboard/value-chart";
-import { requireUser } from "@/lib/auth";
+import { isAdmin, requireUser } from "@/lib/auth";
 import { orgClock, STATUS_LABEL } from "@/lib/custody";
 import { widgetsFor, type WidgetKey } from "@/lib/dashboard-widgets";
+import { LAST_STEP } from "@/lib/wizard";
 import { describeEvent, fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { listEvents } from "@/lib/history";
 import { todayIn } from "@/lib/maintenance";
@@ -19,6 +21,7 @@ const live = and(isNull(assets.deletedAt), ne(assets.status, "disposed"));
 
 export default async function Dashboard({ searchParams }: PageProps<"/dashboard">) {
   const user = await requireUser();
+  if (isAdmin(user) && user.setupStep <= LAST_STEP) redirect("/wizard"); // where everyone lands after signing in
   const tz = user.timezone;
   const sp = await searchParams;
   const fy = fiscalRange({}, tz, user.fyStartMonth);

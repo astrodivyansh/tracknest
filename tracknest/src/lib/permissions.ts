@@ -25,8 +25,24 @@ export const ACTIONS = {
 export type Action = keyof typeof ACTIONS;
 export const ACTION_KEYS = Object.keys(ACTIONS) as Action[];
 
+/** Finer org-wide switches inside "dispose". Not group permissions: they only turn one kind of event off. */
+export const EVENT_SWITCHES = {
+  lost: "Lost / missing",
+  broken: "Broken",
+  scrap: "Scrap and write off",
+  donate: "Donate",
+  sell: "Sell",
+} as const;
+export type EventSwitch = keyof typeof EVENT_SWITCHES;
+export const EVENT_SWITCH_KEYS = Object.keys(EVENT_SWITCHES) as EventSwitch[];
+const DISPOSAL_SWITCH = { sold: "sell", donated: "donate", scrapped: "scrap", written_off: "scrap" } as const;
+
 /** Whether the org has this feature on (for showing a menu item to everyone, viewers included). */
-export const featureOn = (u: Pick<CurrentUser, "disabled">, a: Action) => !u.disabled.includes(a);
+export const featureOn = (u: Pick<CurrentUser, "disabled">, a: Action | EventSwitch) => !u.disabled.includes(a);
+
+/** Lost and broken can be switched off as new events; the way back out of them always stays open. */
+export const statusOn = (u: Pick<CurrentUser, "disabled">, to: string) => (to !== "lost" && to !== "broken") || featureOn(u, to);
+export const disposalOn = (u: Pick<CurrentUser, "disabled">, method: keyof typeof DISPOSAL_SWITCH) => featureOn(u, DISPOSAL_SWITCH[method]);
 
 /** Manager or above, the feature is on, and (for managers) their security group, if any, allows it. */
 export const can = (u: Pick<CurrentUser, "role" | "disabled" | "perms">, a: Action) => {

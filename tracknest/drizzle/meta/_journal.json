@@ -141,6 +141,13 @@
       "when": 1793350180818,
       "tag": "0019_inventory_records_layouts",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793377691110,
+      "tag": "0020_setup_wizard",
+      "breakpoints": true
     }
   ]
 }

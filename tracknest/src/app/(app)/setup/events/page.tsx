@@ -4,7 +4,7 @@ import { withOrg } from "@/db";
 import { customEvents } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
 import { requireUser } from "@/lib/auth";
-import { ACTION_KEYS, ACTIONS, featureOn } from "@/lib/permissions";
+import { ACTION_KEYS, ACTIONS, EVENT_SWITCH_KEYS, EVENT_SWITCHES, featureOn } from "@/lib/permissions";
 import { btn, btnSecondary, card, h1, h2, input } from "@/lib/ui";
 import { addCustomEvent, removeCustomEvent, saveFeatures } from "./actions";
 
@@ -28,6 +28,11 @@ export default async function EventsPage() {
           {ACTION_KEYS.filter((a) => ACTIONS[a].feature).map((a) => (
             <label key={a} className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="on" value={a} defaultChecked={featureOn(user, a)} /> {ACTIONS[a].label}
+            </label>
+          ))}
+          {EVENT_SWITCH_KEYS.map((a) => (
+            <label key={a} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="on" value={a} defaultChecked={featureOn(user, a)} /> {EVENT_SWITCHES[a]}
             </label>
           ))}
           <button className={`${btn} mt-2`}>Save</button>
