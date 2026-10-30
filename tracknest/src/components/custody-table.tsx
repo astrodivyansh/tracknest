@@ -20,9 +20,9 @@ export type CustodyRow = {
 /** Check-out periods (one row per hand-out), used on person, location and department pages. */
 export function CustodyTable({ rows, tz, showHolder }: { rows: CustodyRow[]; tz: string; showHolder?: boolean }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+      <table className="min-w-full divide-y divide-border">
+        <thead className="bg-muted/50">
           <tr>
             <th className={th}>Asset</th>
             {showHolder && <th className={th}>Held by</th>}
@@ -32,13 +32,13 @@ export function CustodyTable({ rows, tz, showHolder }: { rows: CustodyRow[]; tz:
             <th className={th}>Condition out → in</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody className="divide-y divide-border">
           {rows.map((r) => {
             const overdue = r.overdue;
             return (
               <tr key={r.id}>
                 <td className={td}>
-                  <Link href={`/assets/${r.assetId}`} className="font-medium text-indigo-600 hover:underline">
+                  <Link href={`/assets/${r.assetId}`} className="font-medium text-primary hover:underline">
                     {r.assetTag}
                   </Link>{" "}
                   {r.assetName}
@@ -47,13 +47,13 @@ export function CustodyTable({ rows, tz, showHolder }: { rows: CustodyRow[]; tz:
                 <td className={td}>{fmtDateTime(r.checkedOutAt, tz)}</td>
                 <td className={td}>
                   {fmtDateTime(r.dueAt, tz)}
-                  {overdue && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">Overdue</span>}
+                  {overdue && <span className="ml-2 rounded bg-red-100 dark:bg-red-950/50 px-1.5 py-0.5 text-xs text-red-700 dark:text-red-400">Overdue</span>}
                 </td>
                 <td className={td}>
                   {r.checkedInAt ? (
                     fmtDateTime(r.checkedInAt, tz)
                   ) : (
-                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">Still out</span>
+                    <span className="rounded bg-blue-100 dark:bg-blue-950/50 px-1.5 py-0.5 text-xs text-blue-800 dark:text-blue-300">Still out</span>
                   )}
                 </td>
                 <td className={td}>
@@ -64,7 +64,7 @@ export function CustodyTable({ rows, tz, showHolder }: { rows: CustodyRow[]; tz:
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={6} className={`${td} text-gray-500`}>
+              <td colSpan={6} className={`${td} text-muted-foreground`}>
                 No check-outs yet.
               </td>
             </tr>

@@ -3,7 +3,8 @@ import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { withOrg } from "@/db";
 import { checkouts, departments, persons } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
-import { canEdit, requireUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { getLookups } from "@/lib/lookups";
 import { btn, card, h1, input, label, td, th } from "@/lib/ui";
 import { addPerson } from "./actions";
@@ -35,9 +36,9 @@ export default async function PeoplePage() {
   return (
     <>
       <h1 className={h1}>People</h1>
-      <p className="-mt-4 text-sm text-gray-600">Employees and others who can hold assets. They don&apos;t need a login.</p>
+      <p className="-mt-4 text-sm text-muted-foreground">Employees and others who can hold assets. They don&apos;t need a login.</p>
 
-      {canEdit(user) && (
+      {can(user, "people") && (
         <section className={card}>
           <ActionForm action={addPerson} className="grid gap-3 sm:grid-cols-5 sm:items-end">
             <label className={label}>
@@ -68,9 +69,9 @@ export default async function PeoplePage() {
         </section>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-muted/50">
             <tr>
               <th className={th}>Name</th>
               <th className={th}>Employee ID</th>
@@ -79,11 +80,11 @@ export default async function PeoplePage() {
               <th className={th}>Holding now</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-border">
             {rows.map((p) => (
               <tr key={p.id}>
                 <td className={td}>
-                  <Link href={`/people/${p.id}`} className="font-medium text-indigo-600 hover:underline">
+                  <Link href={`/people/${p.id}`} className="font-medium text-primary hover:underline">
                     {p.name}
                   </Link>
                 </td>
@@ -95,7 +96,7 @@ export default async function PeoplePage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className={`${td} text-gray-500`}>
+                <td colSpan={5} className={`${td} text-muted-foreground`}>
                   No people yet.
                 </td>
               </tr>

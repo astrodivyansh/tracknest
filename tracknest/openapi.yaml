@@ -1,0 +1,366 @@
+openapi: 3.1.0
+info:
+  title: TrackNest API
+  version: "1.0"
+  description: |
+    Read and update your organization's assets from other systems (HR, ERP, helpdesk).
+
+    Create a key under **More → Team and invites → API keys** (admins only). Send it as
+    `Authorization: Bearer tn_…`. A **read** key can only call GET endpoints; a **write** key can call all of them.
+    Every change goes through the same rules as the web app and is recorded in the asset's history with source `api`.
+
+    Limits: 120 requests per minute per key. Dates are `YYYY-MM-DD` in your organization's timezone;
+    timestamps are ISO 8601 in UTC. Money is a decimal string, e.g. `"85000.00"`.
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain: { default: assets.example.com }
+security:
+  - apiKey: []
+
+paths:
+  /assets:
+    get:
+      summary: List assets
+      operationId: listAssets
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: "Search tag, name, serial, model or custom field values" }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/AssetStatus" } }
+        - { name: categoryId, in: query, schema: { type: string, format: uuid } }
+        - { name: locationId, in: query, schema: { type: string, format: uuid }, description: "The asset's home location" }
+        - { name: departmentId, in: query, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: One page of assets, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page, limit, total]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Asset" } }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create an asset (write key)
+      operationId: createAsset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssetInput" }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /assets/{tag}:
+    parameters: [{ $ref: "#/components/parameters/tag" }]
+    get:
+      summary: Get one asset by tag
+      operationId: getAsset
+      responses:
+        "200":
+          description: The asset
+          content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /assets/{tag}/history:
+    parameters: [{ $ref: "#/components/parameters/tag" }]
+    get:
+      summary: The asset's permanent custody and change history, newest first
+      operationId: getAssetHistory
+      parameters: [{ $ref: "#/components/parameters/limit" }]
+      responses:
+        "200":
+          description: History entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /assets/{tag}/checkout:
+    parameters: [{ $ref: "#/components/parameters/tag" }]
+    post:
+      summary: Check the asset out (write key)
+      description: Refused with 409 if the asset isn't available or the dates clash with someone else's reservation.
+      operationId: checkOutAsset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [holder]
+              properties:
+                holder: { $ref: "#/components/schemas/HolderRef" }
+                dueDate: { type: string, format: date }
+                condition: { type: string, example: Good }
+                notes: { type: string }
+      responses:
+        "200":
+          description: Checked out; returns the updated asset
+          content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /assets/{tag}/checkin:
+    parameters: [{ $ref: "#/components/parameters/tag" }]
+    post:
+      summary: Check the asset in (write key)
+      operationId: checkInAsset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                returnLocationId: { type: string, format: uuid }
+                condition: { type: string, description: '"Damaged" marks the asset broken' }
+                notes: { type: string }
+      responses:
+        "200":
+          description: Checked in; returns the updated asset
+          content: { application/json: { schema: { $ref: "#/components/schemas/Asset" } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /people:
+    get:
+      summary: List people who can hold assets
+      operationId: listPeople
+      parameters: [{ $ref: "#/components/parameters/page" }, { $ref: "#/components/parameters/limit" }]
+      responses:
+        "200":
+          description: One page of people, by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page, limit, total]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Person" } }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+    post:
+      summary: Add a person (write key)
+      operationId: createPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                employeeId: { type: string }
+                departmentId: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/Person" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /lookups:
+    get:
+      summary: Sites, locations, categories, departments and custom fields, with their ids
+      operationId: getLookups
+      responses:
+        "200":
+          description: Lookup lists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sites: { type: array, items: { $ref: "#/components/schemas/Named" } }
+                  locations:
+                    type: array
+                    items:
+                      allOf:
+                        - { $ref: "#/components/schemas/Named" }
+                        - { type: object, properties: { siteId: { type: string, format: uuid } } }
+                  categories: { type: array, items: { $ref: "#/components/schemas/Named" } }
+                  departments: { type: array, items: { $ref: "#/components/schemas/Named" } }
+                  customFields:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        type: { type: string, enum: [text, number, date, select, checkbox] }
+                        options: { type: array, items: { type: string } }
+                        required: { type: boolean }
+                        categoryId: { type: [string, "null"], format: uuid }
+
+  /events:
+    get:
+      summary: Every history entry across all assets, oldest first, for syncing
+      description: |
+        Poll with `since` set to the `nextSince` of the previous response to receive only new entries.
+      operationId: listEvents
+      parameters:
+        - { name: since, in: query, schema: { type: string, format: date-time }, description: Only entries after this time }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: Entries after `since`
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, nextSince]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Event" } }
+                  nextSince: { type: [string, "null"], format: date-time, description: Pass as `since` next time; null if no entries }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: An API key such as `tn_9fK…`
+
+  parameters:
+    tag: { name: tag, in: path, required: true, schema: { type: string }, example: TN-000042 }
+    page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+
+  responses:
+    Error:
+      description: |
+        `bad_request` (400), `unauthorized` (401), `forbidden` (403), `not_found` (404),
+        `conflict` (409: a rule was broken, e.g. the asset is already checked out), `rate_limited` (429)
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message]
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+
+  schemas:
+    AssetStatus:
+      type: string
+      enum: [available, checked_out, under_maintenance, lost, broken, disposed]
+
+    Named:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    HolderRef:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, enum: [person, location, department, customer] }
+        id: { type: string, format: uuid }
+
+    AssetInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        tag: { type: string, description: Leave out to number automatically }
+        categoryId: { type: string, format: uuid }
+        locationId: { type: string, format: uuid }
+        departmentId: { type: string, format: uuid }
+        brand: { type: string }
+        model: { type: string }
+        serial: { type: string }
+        purchaseDate: { type: string, format: date }
+        cost: { type: string, example: "85000.00" }
+        purchasedFrom: { type: string, description: Vendor or shop }
+        condition: { type: string }
+        notes: { type: string }
+        customFields:
+          type: object
+          additionalProperties: { type: [string, number, boolean] }
+          description: 'Keyed by field label, e.g. `{"Warranty expiry": "2027-08-31"}`'
+
+    Asset:
+      type: object
+      required: [id, tag, name, status, holder, customFields]
+      properties:
+        id: { type: string, format: uuid }
+        tag: { type: string }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/AssetStatus" }
+        category: { type: [string, "null"] }
+        site: { type: [string, "null"] }
+        location: { type: [string, "null"] }
+        department: { type: [string, "null"] }
+        brand: { type: [string, "null"] }
+        model: { type: [string, "null"] }
+        serial: { type: [string, "null"] }
+        purchaseDate: { type: [string, "null"], format: date }
+        cost: { type: [string, "null"] }
+        purchasedFrom: { type: [string, "null"] }
+        condition: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        holder:
+          type: [object, "null"]
+          description: Who has it now, if checked out
+          properties:
+            type: { type: string, enum: [person, location, department, customer] }
+            id: { type: string, format: uuid }
+            name: { type: string }
+            checkedOutAt: { type: string, format: date-time }
+            dueAt: { type: [string, "null"], format: date-time }
+        customFields:
+          type: object
+          additionalProperties: { type: [string, number, boolean] }
+          description: Keyed by field label
+        url: { type: string, description: The asset's page in the web app }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Person:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: [string, "null"] }
+        employeeId: { type: [string, "null"] }
+        department: { type: [string, "null"] }
+
+    Event:
+      type: object
+      required: [id, type, occurredAt, description]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          type: string
+          example: checked_out
+          description: created, edited, checked_out, checked_in, due_extended, status_changed, maintenance_*, audited, reserved, …
+        assetTag: { type: string }
+        occurredAt: { type: string, format: date-time }
+        actor: { type: string, description: Person or API key that did it }
+        source: { type: string, enum: [web, scanner, api, import] }
+        description: { type: string, example: "Checked out to Priya Sharma · due 5 Nov 2026" }
+        details: { type: object, description: Raw details; fields depend on type }

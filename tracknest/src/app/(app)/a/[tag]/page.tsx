@@ -21,7 +21,7 @@ export default async function TagLookup({ params }: PageProps<"/a/[tag]">) {
     <div className="space-y-3">
       <h1 className={h1}>No asset with tag {tag}</h1>
       {canEdit(user) && (
-        <Link href={`/assets/new?tag=${encodeURIComponent(tag)}`} className="text-indigo-600 hover:underline">
+        <Link href={`/assets/new?tag=${encodeURIComponent(tag)}`} className="text-primary hover:underline">
           Create an asset with this tag
         </Link>
       )}

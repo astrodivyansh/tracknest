@@ -1,0 +1,1 @@
+ALTER TABLE "custom_fields" ADD COLUMN "remind_days" integer;
