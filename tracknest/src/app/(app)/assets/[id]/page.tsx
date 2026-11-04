@@ -7,6 +7,7 @@ import { withOrg } from "@/db";
 import { assetEvents, assetFiles, assets, categories, assetRecordLinks, assetRecords, checkouts, customEvents, departments, locations, maintenance, reservations, sites, warranties } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
 import { CONDITIONS } from "@/components/asset-form";
+import { AssetPicker } from "@/components/asset-picker";
 import { HolderSelect } from "@/components/holder-select";
 import { MaintenanceList } from "@/components/maintenance-list";
 import { ReservationList } from "@/components/reservation-list";
@@ -17,6 +18,7 @@ import { describeEvent, EVENT_LABEL, fmtDate, fmtDateTime, fmtMoney } from "@/li
 import { appliesTo, showCustom } from "@/lib/custom-fields";
 import { DEP_LABEL, depreciate } from "@/lib/depreciation";
 import { getLookups } from "@/lib/lookups";
+import { availableAssets } from "@/lib/assets";
 import { RECORD_LABEL } from "@/lib/records";
 import { jobFields } from "@/lib/maintenance";
 import { btn, btnSecondary, card, h1, h2, input, label, STATUS_BADGE } from "@/lib/ui";
@@ -110,7 +112,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       .orderBy(asc(assetRecords.kind), asc(assetRecords.name));
     const eventTypes = await tx.select({ id: customEvents.id, name: customEvents.name }).from(customEvents).orderBy(asc(customEvents.name));
     const warrantyRows = await tx.select().from(warranties).where(eq(warranties.assetId, id)).orderBy(desc(warranties.expiresOn));
-    return { ...asset, open, events, jobs, today, bookings, files, parent, children, warranties: warrantyRows, customEvents: eventTypes, records: linkedRecords, lookups: await getLookups(tx) };
+    const others = asset.a.status === "available" ? (await availableAssets(tx)).filter((o) => o.id !== id) : [];
+    return { ...asset, others, open, events, jobs, today, bookings, files, parent, children, warranties: warrantyRows, customEvents: eventTypes, records: linkedRecords, lookups: await getLookups(tx) };
   });
   if (!data) notFound();
   const { a, open, events, jobs, lookups } = data;
@@ -303,7 +306,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
         )}
 
         {can(user, "checkout") && a.status === "available" && (
-          <ActionForm action={checkOutAction.bind(null, a.id)} className="mt-4 grid gap-3 sm:grid-cols-4 sm:items-end">
+          <ActionForm action={checkOutAction} className="mt-4 grid gap-3 sm:grid-cols-4 sm:items-end">
+            <input type="hidden" name="assetId" value={a.id} />
             <label className={`${label} sm:col-span-2`}>
               Check out to
               <HolderSelect lookups={lookups} />
@@ -325,6 +329,10 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
               <input name="notes" placeholder="e.g. with charger and bag" className={input} />
             </label>
             <button className={btn}>Check out</button>
+            <div className={`${label} sm:col-span-4`}>
+              Also check out to the same holder (e.g. pendrive, hard disk)
+              <AssetPicker assets={data.others} />
+            </div>
           </ActionForm>
         )}
 

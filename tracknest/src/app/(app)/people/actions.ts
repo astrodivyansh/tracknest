@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { and, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { withOrg } from "@/db";
-import { checkouts, persons } from "@/db/schema";
+import { checkouts, persons, WORK_LOCATIONS } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { allow } from "@/lib/permissions";
 import { CustodyError } from "@/lib/custody";
@@ -16,6 +16,9 @@ const personSchema = z.object({
   email: z.union([z.literal(""), z.email("Enter a valid email")]).optional().transform((v) => v || null),
   employeeId: optText,
   departmentId: optId,
+  brand: optText,
+  designation: optText,
+  workLocation: z.union([z.literal(""), z.enum(WORK_LOCATIONS)]).optional().transform((v) => v || null),
 });
 
 export async function addPerson(_: FormState, form: FormData): Promise<FormState> {

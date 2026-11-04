@@ -1,4 +1,4 @@
-import { eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Tx } from "@/db";
 import { assets, ASSET_STATUSES, HOLDER_TYPES, locations, type AssetStatus } from "@/db/schema";
@@ -72,6 +72,15 @@ export const holderSchema = z
     const [type, id] = v.split(":");
     return { holderType: type as (typeof HOLDER_TYPES)[number], holderId: id };
   });
+
+// shortcut: loads every available asset into the picker, fine for a few thousand; switch to a search endpoint beyond that.
+/** Assets that can be checked out now, for the "assign more" pickers. */
+export const availableAssets = (tx: Tx) =>
+  tx
+    .select({ id: assets.id, tag: assets.tag, name: assets.name })
+    .from(assets)
+    .where(and(eq(assets.status, "available"), isNull(assets.deletedAt)))
+    .orderBy(assets.tag);
 
 export async function siteOf(tx: Tx, locationId: string | null) {
   if (!locationId) return null;

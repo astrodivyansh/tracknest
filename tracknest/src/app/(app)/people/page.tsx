@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { withOrg } from "@/db";
-import { checkouts, departments, persons } from "@/db/schema";
+import { checkouts, departments, persons, WORK_LOCATION_LABEL } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
 import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getLookups } from "@/lib/lookups";
-import { btn, card, h1, input, label, td, th } from "@/lib/ui";
+import { PersonFields } from "@/components/person-fields";
+import { btn, card, h1, td, th } from "@/lib/ui";
 import { addPerson } from "./actions";
 
 export default async function PeoplePage() {
@@ -18,6 +19,9 @@ export default async function PeoplePage() {
         name: persons.name,
         email: persons.email,
         employeeId: persons.employeeId,
+        designation: persons.designation,
+        brand: persons.brand,
+        workLocation: persons.workLocation,
         department: departments.name,
         holding: count(checkouts.id),
       })
@@ -40,30 +44,8 @@ export default async function PeoplePage() {
 
       {can(user, "people") && (
         <section className={card}>
-          <ActionForm action={addPerson} className="grid gap-3 sm:grid-cols-5 sm:items-end">
-            <label className={label}>
-              Name
-              <input name="name" required className={input} />
-            </label>
-            <label className={label}>
-              Email
-              <input name="email" type="email" className={input} />
-            </label>
-            <label className={label}>
-              Employee ID
-              <input name="employeeId" className={input} />
-            </label>
-            <label className={label}>
-              Department
-              <select name="departmentId" className={input}>
-                <option value="">—</option>
-                {lookups.departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <ActionForm action={addPerson} className="grid gap-3 sm:grid-cols-4 sm:items-end">
+            <PersonFields lookups={lookups} />
             <button className={btn}>Add person</button>
           </ActionForm>
         </section>
@@ -75,7 +57,10 @@ export default async function PeoplePage() {
             <tr>
               <th className={th}>Name</th>
               <th className={th}>Employee ID</th>
+              <th className={th}>Designation</th>
+              <th className={th}>Brand</th>
               <th className={th}>Department</th>
+              <th className={th}>Work location</th>
               <th className={th}>Email</th>
               <th className={th}>Holding now</th>
             </tr>
@@ -89,14 +74,17 @@ export default async function PeoplePage() {
                   </Link>
                 </td>
                 <td className={td}>{p.employeeId ?? "—"}</td>
+                <td className={td}>{p.designation ?? "—"}</td>
+                <td className={td}>{p.brand ?? "—"}</td>
                 <td className={td}>{p.department ?? "—"}</td>
+                <td className={td}>{p.workLocation ? WORK_LOCATION_LABEL[p.workLocation] : "—"}</td>
                 <td className={td}>{p.email ?? "—"}</td>
                 <td className={td}>{p.holding}</td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className={`${td} text-muted-foreground`}>
+                <td colSpan={8} className={`${td} text-muted-foreground`}>
                   No people yet.
                 </td>
               </tr>

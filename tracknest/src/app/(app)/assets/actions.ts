@@ -99,25 +99,9 @@ export async function updateAsset(assetId: string, _: FormState, form: FormData)
 }
 
 
-export async function checkOutAction(assetId: string, _: FormState, form: FormData): Promise<FormState> {
-  return handle(async () => {
-    const user = allow(await requireUser("manager"), "checkout");
-    const input = z
-      .object({ holder: holderSchema, dueDate: optDate, condition: optText, notes: optText })
-      .parse(fields(form));
-    if (input.holder.holderType === "customer") allow(user, "lease");
-    await withOrg(user.orgId, (tx) =>
-      checkOut(tx, actorOf(user), {
-        assetId,
-        ...input.holder,
-        dueAt: input.dueDate ? endOfDayIn(input.dueDate, user.timezone) : null,
-        condition: input.condition,
-        notes: input.notes,
-      }),
-    );
-    revalidatePath(`/assets/${assetId}`);
-    return { ok: "Checked out." };
-  });
+/** Checks out every asset in the form's repeated "assetId" field (e.g. a laptop plus its pendrive) to one holder, all or none. */
+export async function checkOutAction(state: FormState, form: FormData): Promise<FormState> {
+  return bulkAction("checkout", form.getAll("assetId").map(String), state, form);
 }
 
 export async function checkInAction(assetId: string, _: FormState, form: FormData): Promise<FormState> {
