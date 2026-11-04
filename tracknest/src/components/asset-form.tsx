@@ -89,7 +89,8 @@ export function AssetForm({
   return (
     <ActionForm action={action} className="grid gap-4 sm:grid-cols-2">
       {text("name", "Asset name *", { required: true, placeholder: "e.g. Dell Latitude 5440" })}
-      {text("tag", "Asset tag", { placeholder: "Leave blank to auto-generate" })}
+      {/* New assets are tagged from their category (DESK-000001) when saved; an existing tag can still be corrected. */}
+      {values.tag ? text("tag", "Asset tag", { required: true }) : <p className="self-end text-sm text-muted-foreground">The asset tag is created from the category when you save, e.g. DESK-000001.</p>}
       {formLayout(lookups.assetForm).map((f) => fieldFor(f))}
       {lookups.customFields.map((f) => {
         const v = values.custom?.[f.id];

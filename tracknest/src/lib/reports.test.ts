@@ -61,11 +61,11 @@ describe("reports", () => {
       ["Laptops", 2, 1, 1, 0, "1500.50"],
       ["Uncategorised", 1, 0, 1, 0, "200.00"], // the chair is leased
     ]);
-    expect((await run("overdue"))[0].slice(0, 3)).toEqual(["TN-000002", "Laptop 2", "Kiran"]);
+    expect((await run("overdue"))[0].slice(0, 3)).toEqual(["LAPT-000002", "Laptop 2", "Kiran"]);
     expect((await run("overdue"))[0][4]).toBe(3);
     const register = REPORTS.find((r) => r.slug === "asset-register")!;
     expect(totals(register.columns, await run("asset-register"))?.at(-1)).toBeCloseTo(1700.5);
-    expect((await run("maintenance-cost"))[0].slice(1, 4)).toEqual(["TN-000002", "Laptop 2", "Battery"]);
+    expect((await run("maintenance-cost"))[0].slice(1, 4)).toEqual(["LAPT-000002", "Laptop 2", "Battery"]);
   });
 
   it("works out book value from the category rule", async () => {
@@ -94,7 +94,7 @@ describe("report columns and schedules", () => {
     const report = REPORTS.find((r) => r.slug === "overdue")!;
     const r = await withOrg(actor.orgId, (tx) => runReport(tx, report, { col: ["0", "4"] }, "Asia/Kolkata", 10));
     expect(r.columns.map((c) => c.label)).toEqual(["Tag", "Days overdue"]);
-    expect(r.rows[0]).toEqual(["TN-000002", 3]);
+    expect(r.rows[0]).toEqual(["LAPT-000002", 3]);
     expect(r.params).toBe("col=0&col=4");
     const all = await withOrg(actor.orgId, (tx) => runReport(tx, report, {}, "Asia/Kolkata", 10));
     expect(all.columns).toHaveLength(5);
@@ -121,7 +121,7 @@ describe("report columns and schedules", () => {
     expect(await sendScheduledReports(org, "2026-11-04", send, "https://app.test")).toBe(1);
     expect(await sendScheduledReports(org, "2026-11-04", send, "https://app.test")).toBe(0);
     expect(mails[0].to).toBe(to);
-    expect(mails[0].attachments?.[0].content).toContain('"Tag","Held by"\r\n"TN-000002","Kiran"');
+    expect(mails[0].attachments?.[0].content).toContain('"Tag","Held by"\r\n"LAPT-000002","Kiran"');
     expect((await withOrg(actor.orgId, (tx) => tx.select().from(alertLog))).length).toBe(1);
   });
 });

@@ -179,6 +179,7 @@ export const categories = pgTable("categories", {
   orgId: orgId(),
   name: text("name").notNull(),
   parentId: uuid("parent_id").references((): AnyPgColumn => categories.id), // one level of sub-categories
+  tagPrefix: text("tag_prefix"), // new asset tags, e.g. DESK-000001; empty = from the name (lib/custody.ts nextTags)
   // Depreciation rule for every asset in the category (see lib/depreciation.ts).
   depMethod: text("dep_method", { enum: DEP_METHODS }).notNull().default("none"),
   depLifeYears: numeric("dep_life_years", { precision: 5, scale: 2 }), // straight-line

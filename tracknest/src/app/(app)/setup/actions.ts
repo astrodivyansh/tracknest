@@ -97,6 +97,18 @@ export async function removeItem(kind: SetupKind, id: string): Promise<FormState
   });
 }
 
+export async function setTagPrefix(categoryId: string, _: FormState, form: FormData): Promise<FormState> {
+  return handle(async () => {
+    const user = await requireUser("admin");
+    const { tagPrefix } = z
+      .object({ tagPrefix: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{0,8}$/, "Tag prefix: up to 8 capital letters or digits") })
+      .parse(fields(form));
+    await withOrg(user.orgId, (tx) => tx.update(categories).set({ tagPrefix: tagPrefix || null }).where(eq(categories.id, categoryId)));
+    revalidatePath("/", "layout");
+    return { ok: "Prefix saved. It applies to new tags only." };
+  });
+}
+
 const pct = z
   .union([z.literal(""), z.coerce.number().min(0, "Percent can't be negative").max(99.99, "Percent must be below 100")])
   .optional()

@@ -34,7 +34,7 @@ describe("asset import", () => {
     const rows = await run((tx) => tx.select().from(assets).orderBy(assets.name));
     expect(rows.map((a) => [a.tag, a.name, a.purchaseDate, a.cost])).toEqual([
       ["CUSTOM-1", "Chair", null, null],
-      ["TN-000001", "Laptop A", "2026-04-15", "85000.00"],
+      ["LAPT-000001", "Laptop A", "2026-04-15", "85000.00"],
     ]);
     expect(rows[1].locationId).not.toBeNull();
     expect(rows[1].siteId).not.toBeNull();
