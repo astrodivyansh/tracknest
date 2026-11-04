@@ -194,6 +194,9 @@ export const departments = pgTable("departments", {
   createdAt: createdAt(),
 });
 
+export const WORK_LOCATIONS = ["office", "home"] as const;
+export const WORK_LOCATION_LABEL = { office: "Work from office", home: "Work from home" } as const;
+
 export const persons = pgTable("persons", {
   id: id(),
   orgId: orgId(),
@@ -201,6 +204,9 @@ export const persons = pgTable("persons", {
   email: text("email"),
   employeeId: text("employee_id"),
   departmentId: uuid("department_id").references(() => departments.id),
+  brand: text("brand"), // the group company they belong to
+  designation: text("designation"),
+  workLocation: text("work_location", { enum: WORK_LOCATIONS }),
   createdAt: createdAt(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

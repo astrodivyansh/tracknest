@@ -1,0 +1,82 @@
+# Office stack for a Windows machine running Docker Desktop, with PostgreSQL installed on Windows itself.
+# See DEPLOY-WINDOWS.md. Run with: docker compose -f docker-compose.windows.yml --env-file .env.production up -d --build
+# "db" is mapped to the Windows host below, so the connection strings and deploy/backup.sh match docker-compose.yml.
+name: tracknest
+
+x-host-db: &host-db
+  extra_hosts: ["db:host-gateway"]
+
+services:
+  migrate:
+    <<: *host-db
+    build: { context: ., target: migrator }
+    environment:
+      DATABASE_ADMIN_URL: postgres://tracknest:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/tracknest
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+
+  app:
+    <<: *host-db
+    build: { context: ., target: runner }
+    restart: unless-stopped
+    environment:
+      # The app connects as the restricted role, so row-level security always applies.
+      DATABASE_URL: postgres://tracknest_app:${APP_DB_PASSWORD}@db:5432/tracknest
+      APP_URL: ${APP_URL:?set APP_URL}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-TrackNest <alerts@localhost>}
+      CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+
+  cron:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sleep 60
+        while true; do
+          curl -fsS -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/cron/alerts || echo "alert run failed"
+          echo
+          sleep 3600
+        done
+    depends_on: [app]
+
+  # pg_dump must be the same major version as the Windows PostgreSQL or newer: set PG_MAJOR to match.
+  backup:
+    <<: *host-db
+    image: postgres:${PG_MAJOR:-17}-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - ./deploy/backups:/backups
+      - uploads:/uploads:ro
+    entrypoint: ["/bin/sh", "-c", "while true; do /bin/sh /backup.sh; sleep 86400; done"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  uploads:
+  caddy_data:
+  caddy_config:

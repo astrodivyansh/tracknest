@@ -148,6 +148,13 @@
       "when": 1793377691110,
       "tag": "0020_setup_wizard",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793779080574,
+      "tag": "0021_person_profile",
+      "breakpoints": true
     }
   ]
 }

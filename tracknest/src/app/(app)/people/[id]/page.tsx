@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { withOrg } from "@/db";
-import { departments, persons } from "@/db/schema";
+import { departments, persons, WORK_LOCATION_LABEL } from "@/db/schema";
+import { PersonFields } from "@/components/person-fields";
 import { ActionForm } from "@/components/action-form";
 import { CustodyTable } from "@/components/custody-table";
 import { requireUser } from "@/lib/auth";
@@ -11,6 +12,10 @@ import { can } from "@/lib/permissions";
 import { checkoutsFor } from "@/lib/history";
 import { getLookups } from "@/lib/lookups";
 import { btn, btnSecondary, card, h1, h2, input, label } from "@/lib/ui";
+import { AssetPicker } from "@/components/asset-picker";
+import { CONDITIONS } from "@/components/asset-form";
+import { availableAssets } from "@/lib/assets";
+import { checkOutAction } from "../../assets/actions";
 import { archivePerson, updatePerson } from "../actions";
 
 export default async function PersonPage({ params }: PageProps<"/people/[id]">) {
@@ -25,6 +30,9 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
         email: persons.email,
         employeeId: persons.employeeId,
         departmentId: persons.departmentId,
+        brand: persons.brand,
+        designation: persons.designation,
+        workLocation: persons.workLocation,
         department: departments.name,
         archived: persons.deletedAt,
       })
@@ -33,10 +41,10 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
       .where(eq(persons.id, id));
     if (!person) return null;
     const rows = await checkoutsFor(tx, "person", id);
-    return { person, rows, lookups: await getLookups(tx) };
+    return { person, rows, lookups: await getLookups(tx), available: await availableAssets(tx) };
   });
   if (!data) notFound();
-  const { person, rows, lookups } = data;
+  const { person, rows, lookups, available } = data;
   const holding = rows.filter((r) => r.state === "open");
 
   return (
@@ -44,7 +52,7 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
       <div>
         <h1 className={h1}>{person.name}</h1>
         <p className="text-sm text-muted-foreground">
-          {[person.employeeId, person.email].filter(Boolean).join(" · ") || "No details"}
+          {[person.designation, person.brand, person.employeeId, person.email, person.workLocation && WORK_LOCATION_LABEL[person.workLocation]].filter(Boolean).join(" · ") || "No details"}
           {person.departmentId && (
             <>
               {" · "}
@@ -61,30 +69,8 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
       {can(user, "people") && !person.archived && (
         <details className={card}>
           <summary className="cursor-pointer text-sm font-medium text-primary">Edit details</summary>
-          <ActionForm action={updatePerson.bind(null, id)} className="mt-4 grid gap-3 sm:grid-cols-5 sm:items-end">
-            <label className={label}>
-              Name
-              <input name="name" required defaultValue={person.name} className={input} />
-            </label>
-            <label className={label}>
-              Email
-              <input name="email" type="email" defaultValue={person.email ?? ""} className={input} />
-            </label>
-            <label className={label}>
-              Employee ID
-              <input name="employeeId" defaultValue={person.employeeId ?? ""} className={input} />
-            </label>
-            <label className={label}>
-              Department
-              <select name="departmentId" defaultValue={person.departmentId ?? ""} className={input}>
-                <option value="">—</option>
-                {lookups.departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <ActionForm action={updatePerson.bind(null, id)} className="mt-4 grid gap-3 sm:grid-cols-4 sm:items-end">
+            <PersonFields lookups={lookups} person={person} />
             <button className={btn}>Save</button>
           </ActionForm>
           <div className="mt-6 border-t border-border pt-4">
@@ -96,6 +82,35 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
             </ActionForm>
           </div>
         </details>
+      )}
+      {can(user, "checkout") && !person.archived && (
+        <section className={card}>
+          <h2 className={h2}>Assign assets</h2>
+          <ActionForm action={checkOutAction} className="mt-4 grid gap-3 sm:grid-cols-4 sm:items-end">
+            <input type="hidden" name="holder" value={`person:${id}`} />
+            <div className={`${label} sm:col-span-4`}>
+              Assets to give {person.name}
+              <AssetPicker assets={available} />
+            </div>
+            <label className={label}>
+              Due date
+              <input name="dueDate" type="date" className={input} />
+            </label>
+            <label className={label}>
+              Condition
+              <select name="condition" defaultValue="Good" className={input}>
+                {CONDITIONS.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <label className={label}>
+              Notes
+              <input name="notes" className={input} />
+            </label>
+            <button className={btn}>Check out</button>
+          </ActionForm>
+        </section>
       )}
       <section className="space-y-2">
         <h2 className={h2}>Holding now ({holding.length})</h2>
