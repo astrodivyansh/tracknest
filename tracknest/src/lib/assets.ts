@@ -101,7 +101,7 @@ export async function insertAsset(
     .values({
       ...input,
       orgId: actor.orgId,
-      tag: input.tag ?? (await nextTag(tx, actor.orgId)),
+      tag: input.tag ?? (await nextTag(tx, actor.orgId, input.categoryId)),
       siteId: await siteOf(tx, input.locationId),
     })
     .returning();

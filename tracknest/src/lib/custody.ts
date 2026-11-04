@@ -5,6 +5,7 @@ import { STATUS_LABEL } from "./labels";
 import {
   assets,
   assetEvents,
+  categories,
   checkouts,
   customers,
   departments,
@@ -58,17 +59,53 @@ export async function orgClock(tx: Tx, orgId: string) {
 /** Today's calendar date in `tz`, as SQL. */
 export const todayIn = (tz: string) => sql`(now() at time zone ${tz})::date`;
 
-/** Atomically reserves the org's next `n` tag numbers, e.g. TN-000042. */
-export async function nextTags(tx: Tx, orgId: string, n: number) {
-  const [org] = await tx
-    .update(organizations)
-    .set({ nextTagSeq: sql`${organizations.nextTagSeq} + ${n}` })
-    .where(eq(organizations.id, orgId))
-    .returning({ prefix: organizations.tagPrefix, seq: organizations.nextTagSeq });
-  return Array.from({ length: n }, (_, i) => `${org.prefix}-${String(org.seq - n + i).padStart(6, "0")}`);
+/** Default tag prefix for a category: first 4 letters/digits of its name, e.g. "Desktop" → DESK. */
+export const prefixFrom = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+
+const fmtTag = (prefix: string, n: number) => `${prefix}-${String(n).padStart(6, "0")}`;
+
+/**
+ * Reserves one new tag per entry: the category's prefix plus the next free number for that prefix
+ * (DESK-000001), or the org's own numbering (TN-000042) when there's no category or no usable prefix.
+ */
+export async function nextTags(tx: Tx, orgId: string, categoryIds: (string | null)[]) {
+  const ids = [...new Set(categoryIds.filter((c): c is string => !!c))];
+  const cats = ids.length
+    ? await tx.select({ id: categories.id, name: categories.name, tagPrefix: categories.tagPrefix }).from(categories).where(inArray(categories.id, ids))
+    : [];
+  const prefixOf = new Map(cats.map((c) => [c.id, c.tagPrefix || prefixFrom(c.name)]));
+  const prefixes = categoryIds.map((id) => (id && prefixOf.get(id)) || null);
+
+  const orgCount = prefixes.filter((p) => !p).length;
+  let org = { prefix: "", seq: 0 };
+  if (orgCount) {
+    [org] = await tx
+      .update(organizations)
+      .set({ nextTagSeq: sql`${organizations.nextTagSeq} + ${orgCount}` })
+      .where(eq(organizations.id, orgId))
+      .returning({ prefix: organizations.tagPrefix, seq: organizations.nextTagSeq });
+    org.seq -= orgCount;
+  }
+
+  const next = new Map<string, number>();
+  for (const p of [...new Set(prefixes.filter((p): p is string => !!p))].sort()) {
+    // One writer per prefix until commit, so two assets added at once never get the same number.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${orgId}:tag:${p}`}))`);
+    const [{ last }] = await tx
+      .select({ last: sql<string>`coalesce(max(substring(${assets.tag} from ${p.length + 2}::int)::bigint), 0)` })
+      .from(assets)
+      .where(and(eq(assets.orgId, orgId), sql`${assets.tag} ~ ${`^${p}-[0-9]+$`}`));
+    next.set(p, Number(last) + 1);
+  }
+  return prefixes.map((p) => {
+    if (!p) return fmtTag(org.prefix, org.seq++);
+    const n = next.get(p)!;
+    next.set(p, n + 1);
+    return fmtTag(p, n);
+  });
 }
 
-export const nextTag = async (tx: Tx, orgId: string) => (await nextTags(tx, orgId, 1))[0];
+export const nextTag = async (tx: Tx, orgId: string, categoryId: string | null = null) => (await nextTags(tx, orgId, [categoryId]))[0];
 
 export async function holderName(tx: Tx, type: HolderType, id: string) {
   const rows =
@@ -436,7 +473,7 @@ export async function unlinkAsset(tx: Tx, actor: Actor, input: { childId: string
 export async function duplicateAsset(tx: Tx, actor: Actor, input: { assetId: string; copies: number }) {
   const a = await lockAsset(tx, input.assetId);
   if (input.copies < 1 || input.copies > 50) throw new CustodyError("Make between 1 and 50 copies.");
-  const tags = await nextTags(tx, actor.orgId, input.copies);
+  const tags = await nextTags(tx, actor.orgId, Array(input.copies).fill(a.categoryId));
   const rows = await tx
     .insert(assets)
     .values(

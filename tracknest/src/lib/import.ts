@@ -129,7 +129,8 @@ export async function importAssets(tx: Tx, actor: Actor, text: string) {
 
   const cats = await idsByName(tx, actor.orgId, categories, valid.map((r) => r.category));
   const depts = await idsByName(tx, actor.orgId, departments, valid.map((r) => r.department));
-  const tags = await nextTags(tx, actor.orgId, valid.filter((r) => !r.tag).length);
+  const categoryOf = (r: (typeof valid)[number]) => (r.category ? cats.get(key(r.category))! : null);
+  const tags = await nextTags(tx, actor.orgId, valid.filter((r) => !r.tag).map(categoryOf));
 
   const values = valid.map((r, i) => ({
     orgId: actor.orgId,
@@ -144,7 +145,7 @@ export async function importAssets(tx: Tx, actor: Actor, text: string) {
     condition: r.condition,
     notes: r.notes,
     custom: r.custom,
-    categoryId: r.category ? cats.get(key(r.category))! : null,
+    categoryId: categoryOf(r),
     departmentId: r.department ? depts.get(key(r.department))! : null,
     ...placed[i],
   }));

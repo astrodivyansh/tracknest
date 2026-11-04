@@ -6,10 +6,12 @@ import { ActionForm } from "@/components/action-form";
 import { isAdmin as isAdminUser, requireUser } from "@/lib/auth";
 import { FIELD_TYPE_LABEL, HAS_OPTIONS } from "@/lib/custom-fields";
 import { DEP_LABEL } from "@/lib/depreciation";
+import { prefixFrom } from "@/lib/custody";
 import { getLookups } from "@/lib/lookups";
 import { btn, btnSecondary, card, h1, h2, input, label, td, th } from "@/lib/ui";
 import {
   addCategory,
+  setTagPrefix,
   addDepartment,
   addLocation,
   addCustomField,
@@ -227,9 +229,9 @@ export default async function SetupPage() {
 
       {rules.length > 0 && (
         <section className="space-y-2">
-          <h2 className={h2}>Depreciation by category</h2>
+          <h2 className={h2}>Tag prefix and depreciation by category</h2>
           <p className="text-sm text-muted-foreground">
-            Book value is worked out from each asset&apos;s purchase date and cost. Straight-line suits the Companies Act; declining
+            New asset tags use the category&apos;s prefix and the next free number, e.g. DESK-000001. Book value is worked out from each asset&apos;s purchase date and cost. Straight-line suits the Companies Act; declining
             balance (WDV) suits income-tax rates, e.g. 40% a year for computers.
           </p>
           <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -237,6 +239,7 @@ export default async function SetupPage() {
               <thead className="bg-muted/50">
                 <tr>
                   <th className={th}>Category</th>
+                  <th className={th}>Tag prefix</th>
                   <th className={th}>Rule</th>
                   {isAdmin && <th className={th} />}
                 </tr>
@@ -245,6 +248,16 @@ export default async function SetupPage() {
                 {rules.map((c) => (
                   <tr key={c.id} className="align-top">
                     <td className={td}>{c.name}</td>
+                    <td className={td}>
+                      {isAdmin ? (
+                        <ActionForm action={setTagPrefix.bind(null, c.id)} className="flex w-44 gap-2">
+                          <input name="tagPrefix" defaultValue={c.tagPrefix ?? ""} placeholder={prefixFrom(c.name) || "—"} maxLength={8} aria-label={`Tag prefix for ${c.name}`} className={`${input} uppercase`} />
+                          <button className={btnSecondary}>Save</button>
+                        </ActionForm>
+                      ) : (
+                        c.tagPrefix || prefixFrom(c.name)
+                      )}
+                    </td>
                     <td className={td}>
                       {[
                         DEP_LABEL[c.depMethod],
