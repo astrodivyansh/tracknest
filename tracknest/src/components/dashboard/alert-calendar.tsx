@@ -9,6 +9,7 @@ const KINDS = {
   reminder: { name: "Date reminder", dot: "bg-red-500" },
   warranty: { name: "Warranty ends", dot: "bg-violet-500" },
   reservation: { name: "Reservation starts", dot: "bg-amber-500" },
+  subscription: { name: "Software recharge due", dot: "bg-pink-500" },
 };
 const MAX_PER_DAY = 3;
 

@@ -83,6 +83,7 @@ export function AppSidebar({
       label: "Contracts & cover",
       icon: FileText,
       items: [
+        { href: "/subscriptions", label: "Software subscriptions" },
         { href: "/records/contract", label: "Contracts and licences" },
         { href: "/records/insurance", label: "Insurance" },
         { href: "/records/funding", label: "Funding" },

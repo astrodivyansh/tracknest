@@ -18,9 +18,10 @@ beforeAll(async () => {
     const [warranty, insurance, imei] = await tx
       .insert(customFields)
       .values([
-        { orgId: org.id, label: "Warranty expiry", type: "date", remindDays: 30 },
-        { orgId: org.id, label: "Insurance renewal", type: "date" }, // no reminder
-        { orgId: org.id, label: "IMEI", type: "text" },
+        // Distinct times: columns are ordered by when each field was added.
+        { orgId: org.id, label: "Warranty expiry", type: "date", remindDays: 30, createdAt: new Date("2026-01-01T00:00:01Z") },
+        { orgId: org.id, label: "Insurance renewal", type: "date", createdAt: new Date("2026-01-01T00:00:02Z") }, // no reminder
+        { orgId: org.id, label: "IMEI", type: "text", createdAt: new Date("2026-01-01T00:00:03Z") },
       ])
       .returning();
     const add = async (name: string, custom: Record<string, string>, status: "available" | "disposed" = "available") =>
