@@ -62,7 +62,7 @@ export async function login(_: FormState, form: FormData): Promise<FormState> {
   if (await isLoginBlocked(email, ip)) {
     return { error: "Too many failed sign-in attempts. Wait 15 minutes and try again." };
   }
-  const [user] = await db.select().from(users).where(sql`lower(${users.email}) = ${email}`);
+  const [user] = await db.select().from(users).where(and(sql`lower(${users.email}) = ${email}`, isNull(users.deletedAt)));
   // Hash even for unknown emails so response time doesn't reveal which accounts exist.
   const ok = await verifyPassword(password, user?.passwordHash ?? (await dummyHash));
   if (!user || !ok) {
@@ -99,7 +99,7 @@ export async function requestPasswordReset(_: FormState, form: FormData): Promis
   return handle(async () => {
     const { email } = z.object({ email: z.email("Enter a valid email").trim().toLowerCase() }).parse(fields(form));
     const done = { ok: `If ${email} has an account, we've emailed a link to reset the password. It works for ${RESET_MINUTES} minutes.` };
-    const [user] = await db.select().from(users).where(sql`lower(${users.email}) = ${email}`);
+    const [user] = await db.select().from(users).where(and(sql`lower(${users.email}) = ${email}`, isNull(users.deletedAt)));
     if (!user) return done;
     const [recent] = await db
       .select({ n: count() })

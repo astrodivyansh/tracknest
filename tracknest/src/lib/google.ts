@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { and, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword } from "./auth";
@@ -81,7 +81,7 @@ export async function googleAccount(claims: GoogleClaims, inviteToken: string | 
     const unusable = await hashPassword(b64url(randomBytes(32)));
     return redeemInvite(inviteToken, { name: claims.name, passwordHash: unusable, email: claims.email });
   }
-  const [user] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${claims.email}`);
+  const [user] = await db.select({ id: users.id }).from(users).where(and(sql`lower(${users.email}) = ${claims.email}`, isNull(users.deletedAt)));
   if (!user) throw new CustodyError(`There's no TrackNest account for ${claims.email}. Ask your admin for an invite.`);
   return user.id;
 }

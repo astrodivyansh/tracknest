@@ -66,7 +66,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       .leftJoin(locations, eq(locations.id, assets.locationId))
       .leftJoin(sites, eq(sites.id, assets.siteId))
       .leftJoin(departments, eq(departments.id, assets.departmentId))
-      .where(and(eq(assets.id, id), isNull(assets.deletedAt)));
+      .where(eq(assets.id, id)); // archived ones open too, read-only, so their history stays reachable
     if (!asset) return null;
     const [open] = await tx
       .select({
@@ -117,7 +117,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
   });
   if (!data) notFound();
   const { a, open, events, jobs, lookups } = data;
-  if (!can(user, "lease")) lookups.customers = []; // leasing off, or not allowed: no customers to check out to
+  const perms = a.deletedAt ? { ...user, role: "viewer" as const } : user; // nothing can change on an archived asset
+  if (!can(perms, "lease")) lookups.customers = []; // leasing off, or not allowed: no customers to check out to
   const inWorkshop = jobs.some((j) => j.state === "in_progress");
   const otherMoves = STATUS_MOVES[a.status].filter((m) => m.to !== "disposed" && statusOn(user, m.to)); // disposal has its own form
   const disposalMethods = (Object.keys(DISPOSAL_LABEL) as (keyof typeof DISPOSAL_LABEL)[]).filter((k) => disposalOn(user, k));
@@ -183,15 +184,16 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
           <span className={`mt-1 inline-block rounded px-2 py-0.5 text-xs ${STATUS_BADGE[a.status]}`}>
             {STATUS_LABEL[a.status]}
           </span>
+          {a.deletedAt && <p className="mt-2 inline-block rounded bg-muted px-2 py-0.5 text-xs text-foreground">Archived — kept for history only</p>}
         </div>
-        {canEdit(user) && (
+        {canEdit(perms) && (
           <div className="flex items-start gap-2">
-            {can(user, "edit") && (
+            {can(perms, "edit") && (
               <Link href={`/assets/${a.id}/edit`} className={btnSecondary}>
                 Edit
               </Link>
             )}
-            <details className={`relative ${can(user, "add") ? "" : "hidden"}`}>
+            <details className={`relative ${can(perms, "add") ? "" : "hidden"}`}>
               <summary className={`${btnSecondary} cursor-pointer list-none`}>Duplicate</summary>
               <ActionForm action={duplicateAction.bind(null, a.id)} className="absolute right-0 z-10 mt-2 w-64 space-y-2 rounded-md border border-border bg-card p-3 shadow-md">
                 <label className={label}>
@@ -238,7 +240,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                     {/* eslint-disable-next-line @next/next/no-img-element -- private, auth-checked file; the image optimiser can't fetch it */}
                     <img src={`/files/${f.id}`} alt={f.filename} className="h-32 w-32 rounded-md border border-border object-cover" />
                   </a>
-                  {can(user, "edit") && (
+                  {can(perms, "edit") && (
                     <ActionForm action={removeFileAction.bind(null, a.id, f.id)}>
                       <button className="mt-1 text-xs text-red-600 dark:text-red-400 hover:underline">Remove</button>
                     </ActionForm>
@@ -266,7 +268,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                     <a href={`/files/${f.id}?download`} className="text-xs text-muted-foreground hover:underline">
                       Download
                     </a>
-                    {can(user, "edit") && (
+                    {can(perms, "edit") && (
                       <ActionForm action={removeFileAction.bind(null, a.id, f.id)}>
                         <button className="text-xs text-red-600 dark:text-red-400 hover:underline">Remove</button>
                       </ActionForm>
@@ -276,7 +278,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
               ))}
           </ul>
         )}
-        {can(user, "edit") && (
+        {can(perms, "edit") && (
           <ActionForm action={uploadFilesAction.bind(null, a.id)} className="mt-4 flex flex-wrap items-center gap-2">
             <input
               type="file"
@@ -305,7 +307,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
           <p className="mt-2 text-sm text-muted-foreground">Not checked out.</p>
         )}
 
-        {can(user, "checkout") && a.status === "available" && (
+        {can(perms, "checkout") && a.status === "available" && (
           <ActionForm action={checkOutAction} className="mt-4 grid gap-3 sm:grid-cols-4 sm:items-end">
             <input type="hidden" name="assetId" value={a.id} />
             <label className={`${label} sm:col-span-2`}>
@@ -336,7 +338,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
           </ActionForm>
         )}
 
-        {can(user, "checkout") && a.status === "checked_out" && (
+        {can(perms, "checkout") && a.status === "checked_out" && (
           <div className="mt-4 space-y-4">
             <ActionForm action={checkInAction.bind(null, a.id)} className="grid gap-3 sm:grid-cols-4 sm:items-end">
               <label className={label}>
@@ -373,7 +375,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
             </ActionForm>
           </div>
         )}
-        {can(user, "move") && a.status !== "disposed" && (
+        {can(perms, "move") && a.status !== "disposed" && (
           <ActionForm action={moveAction.bind(null, a.id)} className="mt-6 grid gap-3 border-t border-border pt-4 sm:grid-cols-4 sm:items-end">
             <label className={label}>
               Move to location
@@ -401,7 +403,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
             <button className={btnSecondary}>Move</button>
           </ActionForm>
         )}
-        {can(user, "dispose") && otherMoves.length > 0 && !inWorkshop && (
+        {can(perms, "dispose") && otherMoves.length > 0 && !inWorkshop && (
           <ActionForm
             action={changeStatusAction.bind(null, a.id)}
             className="mt-6 grid gap-3 border-t border-border pt-4 sm:grid-cols-4 sm:items-end"
@@ -426,7 +428,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
             <button className={btnSecondary}>Update status</button>
           </ActionForm>
         )}
-        {can(user, "dispose") && canDispose && !inWorkshop && (
+        {can(perms, "dispose") && canDispose && !inWorkshop && (
           <details className="mt-4 border-t border-border pt-4">
             <summary className="cursor-pointer text-sm font-medium text-red-700 dark:text-red-400">Dispose of this asset (sold, scrapped, donated, written off)</summary>
             <ActionForm action={disposeAction.bind(null, a.id)} className="mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">
@@ -473,7 +475,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                 {data.parent.tag}
               </Link>
               {data.parent.name}
-              {can(user, "link") && (
+              {can(perms, "link") && (
                 <ActionForm action={unlinkAction.bind(null, a.id)}>
                   <button className="text-sm text-red-600 hover:underline dark:text-red-400">Unlink</button>
                 </ActionForm>
@@ -489,7 +491,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                   </Link>
                   {c.name}
                   <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[c.status]}`}>{STATUS_LABEL[c.status]}</span>
-                  {can(user, "link") && (
+                  {can(perms, "link") && (
                     <ActionForm action={unlinkAction.bind(null, c.id)}>
                       <button className="text-sm text-red-600 hover:underline dark:text-red-400">Unlink</button>
                     </ActionForm>
@@ -499,7 +501,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
             </ul>
           )}
           {!data.parent && data.children.length === 0 && <p className="mt-2 text-sm text-muted-foreground">Not linked to other assets.</p>}
-          {can(user, "link") && !data.parent && data.children.length === 0 && (
+          {can(perms, "link") && !data.parent && data.children.length === 0 && (
             <ActionForm action={linkAction.bind(null, a.id)} className="mt-3 flex flex-wrap items-end gap-2">
               <label className={label}>
                 Make this part of asset (tag)
@@ -525,7 +527,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                     <span className={expired ? "text-muted-foreground line-through" : "font-medium"}>Until {fmtDate(w.expiresOn, "UTC")}</span>
                     {expired && <span className="rounded bg-muted px-1.5 py-0.5 text-xs">Expired</span>}
                     {[w.provider, w.lengthMonths && `${w.lengthMonths} months`, w.notes].filter(Boolean).join(" · ")}
-                    {can(user, "warranty") && (
+                    {can(perms, "warranty") && (
                       <ActionForm action={removeWarrantyAction.bind(null, a.id, w.id)}>
                         <button className="text-sm text-red-600 hover:underline dark:text-red-400">Remove</button>
                       </ActionForm>
@@ -535,7 +537,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
               })}
             </ul>
           )}
-          {can(user, "warranty") && a.status !== "disposed" && (
+          {can(perms, "warranty") && a.status !== "disposed" && (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm font-medium text-primary">Add a warranty</summary>
               <ActionForm action={addWarrantyAction.bind(null, a.id)} className="mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">
@@ -582,8 +584,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       {(featureOn(user, "reserve") || data.bookings.length > 0) && (
         <section className="space-y-2">
           <h2 className={h2}>Reservations</h2>
-          <ReservationList rows={data.bookings} today={data.today} canEdit={can(user, "reserve")} />
-          {can(user, "reserve") && a.status !== "disposed" && a.status !== "lost" && (
+          <ReservationList rows={data.bookings} today={data.today} canEdit={can(perms, "reserve")} />
+          {can(perms, "reserve") && a.status !== "disposed" && a.status !== "lost" && (
             <details className={card}>
               <summary className="cursor-pointer text-sm font-medium text-primary">Reserve this asset</summary>
               <ActionForm action={reserveAction.bind(null, a.id)} className="mt-4 grid gap-3 sm:grid-cols-4 sm:items-end">
@@ -613,8 +615,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       {(featureOn(user, "maintenance") || jobs.length > 0) && (
         <section className="space-y-2">
           <h2 className={h2}>Maintenance</h2>
-          <MaintenanceList jobs={jobs} canEdit={can(user, "maintenance")} currency={user.currency} empty="No maintenance recorded." />
-          {can(user, "maintenance") && a.status !== "disposed" && (
+          <MaintenanceList jobs={jobs} canEdit={can(perms, "maintenance")} currency={user.currency} empty="No maintenance recorded." />
+          {can(perms, "maintenance") && a.status !== "disposed" && (
             <details className={card}>
               <summary className="cursor-pointer text-sm font-medium text-primary">Schedule maintenance</summary>
               <ActionForm action={scheduleAction.bind(null, a.id)} className="mt-4 grid gap-3 sm:grid-cols-3 sm:items-end">
@@ -661,7 +663,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
         </section>
       )}
 
-      {can(user, "edit") && data.customEvents.length > 0 && (
+      {can(perms, "edit") && data.customEvents.length > 0 && (
         <details className={card}>
           <summary className="cursor-pointer text-sm font-medium text-primary">Record an event</summary>
           <ActionForm action={recordCustomEventAction.bind(null, a.id)} className="mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { db, withOrg } from "@/db";
 import { securityGroups, users } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
@@ -26,7 +26,7 @@ export default async function GroupsPage() {
   const members = await db
     .select({ groupId: users.groupId, n: count() })
     .from(users)
-    .where(eq(users.orgId, user.orgId))
+    .where(and(eq(users.orgId, user.orgId), isNull(users.deletedAt)))
     .groupBy(users.groupId);
   const size = (id: string) => members.find((m) => m.groupId === id)?.n ?? 0;
 

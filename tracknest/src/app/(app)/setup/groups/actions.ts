@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, withOrg } from "@/db";
 import { securityGroups, users } from "@/db/schema";
@@ -35,7 +35,7 @@ export async function updateGroup(id: string, _: FormState, form: FormData): Pro
 export async function removeGroup(id: string): Promise<FormState> {
   return handle(async () => {
     const user = await requireUser("admin");
-    const [inUse] = await db.select({ id: users.id }).from(users).where(and(eq(users.orgId, user.orgId), eq(users.groupId, id))).limit(1);
+    const [inUse] = await db.select({ id: users.id }).from(users).where(and(eq(users.orgId, user.orgId), eq(users.groupId, id), isNull(users.deletedAt))).limit(1);
     if (inUse) throw new CustodyError("Move its members to another group (or none) first.");
     await withOrg(user.orgId, (tx) => tx.delete(securityGroups).where(eq(securityGroups.id, id)));
     revalidatePath("/setup/groups");

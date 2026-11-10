@@ -17,7 +17,7 @@ const ROLE_HELP = {
 export default async function TeamPage() {
   const user = await requireUser("admin");
   const [members, pending, keys, groups] = await Promise.all([
-    db.select().from(users).where(eq(users.orgId, user.orgId)).orderBy(asc(users.createdAt)),
+    db.select().from(users).where(and(eq(users.orgId, user.orgId), isNull(users.deletedAt))).orderBy(asc(users.createdAt)),
     db
       .select()
       .from(invites)
