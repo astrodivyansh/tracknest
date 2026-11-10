@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
 import { db, withOrg } from "@/db";
-import { assetEvents, assetRecords, assets, categories, customers, inventoryItems, inventoryMoves, locations, organizations, sites, users, warranties } from "@/db/schema";
+import { assetEvents, assetRecords, assets, categories, customers, inventoryItems, inventoryMoves, locations, maintenance, organizations, sites, users, warranties } from "@/db/schema";
 import { applyFormSetup, formLayout } from "./asset-form-setup";
 import { nextTag, type Actor } from "./custody";
 import { widgetsFor } from "./dashboard-widgets";
@@ -76,12 +76,31 @@ describe("importers and exports", () => {
     expect((await run((tx) => tx.select().from(sites))).length).toBe(1);
     expect((await run((tx) => tx.select().from(warranties).where(eq(warranties.assetId, asset.id)))).length).toBe(1);
     expect((await run((tx) => tx.select().from(customers))).length).toBe(1);
+    // Newer fields come through too.
+    const [site] = await run((tx) => tx.select().from(sites));
+    expect(site).toMatchObject({ city: "Noida", postalCode: "201301", country: "India", suite: "Block B" });
+    expect((await run((tx) => tx.select({ p: categories.tagPrefix }).from(categories).where(eq(categories.name, "Laptops"))))[0].p).toBe("LAP");
+    expect((await run((tx) => tx.select({ m: maintenance.repeatMonths }).from(maintenance).where(eq(maintenance.assetId, asset.id))))[0].m).toBe(12);
+    const [item] = await run((tx) => tx.select({ loc: inventoryItems.locationId }).from(inventoryItems).where(eq(inventoryItems.name, "HP 680 toner")));
+    expect(item.loc).not.toBeNull();
+  });
+
+  it("works out a warranty end from its length and the purchase date", async () => {
+    const bought = await run(async (tx) => (await tx.update(assets).set({ purchaseDate: "2026-01-31" }).where(eq(assets.id, (await newAsset()).id)).returning())[0]);
+    await imp("warranties", `tag,name,length_months\r\n${bought.tag},HP Care,13\r\n`);
+    const [w] = await run((tx) => tx.select().from(warranties).where(eq(warranties.assetId, bought.id)));
+    expect(w).toMatchObject({ expiresOn: "2027-02-28", lengthMonths: 13 });
+    const plain = await newAsset();
+    await expect(imp("warranties", `tag,name,length_months\r\n${plain.tag},HP Care,12\r\n`)).rejects.toThrow(/no purchase date/);
   });
 
   it("a bad row imports nothing", async () => {
     await expect(imp("warranties", "tag,name,ends\r\nNOPE-1,Dell,2028-01-01\r\n")).rejects.toThrow(/NOPE-1/);
     await expect(imp("records", "kind,name\r\nbogus,X\r\n")).rejects.toThrow(/Row 2/);
     await expect(imp("categories", "name,parent\r\nDeep,Laptops\r\n")).rejects.toThrow(/already a sub-category/);
+    await expect(imp("categories", "name,tag_prefix\r\nOdd,AB-CD\r\n")).rejects.toThrow(/Tag prefix/);
+    await expect(imp("maintenance", "tag,name,repeat_months\r\nX,Service,6\r\n")).rejects.toThrow(/due date/);
+    await expect(imp("inventory", "name,location\r\nPaper,Nowhere\r\n")).rejects.toThrow(/Nowhere/);
   });
 
   it("every export has one cell per header", async () => {
