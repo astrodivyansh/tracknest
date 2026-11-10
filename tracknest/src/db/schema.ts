@@ -72,8 +72,10 @@ export const users = pgTable(
     totpEnabled: boolean("totp_enabled").notNull().default(false),
     totpLastStep: integer("totp_last_step"), // last accepted 30-second step, so a code can't be replayed
     createdAt: createdAt(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }), // removed from the team; kept so history still names them
   },
-  (t) => [uniqueIndex("users_email_uq").on(sql`lower(${t.email})`)],
+  // A removed member's email can be invited again.
+  (t) => [uniqueIndex("users_email_uq").on(sql`lower(${t.email})`).where(sql`deleted_at is null`)],
 );
 
 export const sessions = pgTable("sessions", {

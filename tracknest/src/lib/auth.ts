@@ -3,7 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { eq, and, count, gt, lt, ne, sql } from "drizzle-orm";
+import { eq, and, count, gt, isNull, lt, ne, sql } from "drizzle-orm";
 import { db, withOrg } from "@/db";
 import { loginFailures, organizations, ROLES, securityGroups, sessions, users, type Role } from "@/db/schema";
 import { setDateFormat } from "./format";
@@ -126,7 +126,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .innerJoin(organizations, eq(organizations.id, users.orgId))
-    .where(and(eq(sessions.id, sha256(token)), gt(sessions.expiresAt, new Date())));
+    .where(and(eq(sessions.id, sha256(token)), gt(sessions.expiresAt, new Date()), isNull(users.deletedAt)));
   if (!row) return null;
   const { dateFormat, groupId, ...user } = row;
   setDateFormat(dateFormat);

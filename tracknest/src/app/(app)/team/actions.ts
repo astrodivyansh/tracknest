@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { apiKeys, invites, users } from "@/db/schema";
+import { apiKeys, invites, passwordResets, sessions, users } from "@/db/schema";
 import { appOrigin, requireUser, sha256 } from "@/lib/auth";
 import { CustodyError } from "@/lib/custody";
 import { fields, handle, type FormState } from "@/lib/form";
@@ -21,7 +21,7 @@ export async function createInvite(_: FormState, form: FormData): Promise<FormSt
     const input = z
       .object({ email: z.email("Enter a valid email").trim().toLowerCase(), role: assignable })
       .parse(fields(form));
-    const [existing] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${input.email}`);
+    const [existing] = await db.select({ id: users.id }).from(users).where(and(sql`lower(${users.email}) = ${input.email}`, isNull(users.deletedAt)));
     if (existing) throw new CustodyError("Someone with that email already has an account.");
 
     const token = randomBytes(32).toString("base64url");
@@ -59,7 +59,7 @@ export async function revokeInvite(inviteId: string): Promise<FormState> {
 
 async function otherMember(orgId: string, selfId: string, userId: string) {
   if (userId === selfId) throw new CustodyError("You can't change your own access.");
-  const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.orgId, orgId)));
+  const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.orgId, orgId), isNull(users.deletedAt)));
   if (!target) throw new CustodyError("User not found.");
   if (target.role === "owner") throw new CustodyError("The owner's access can't be changed.");
   return target;
@@ -80,17 +80,21 @@ export async function removeUser(userId: string): Promise<FormState> {
   return handle(async () => {
     const user = await requireUser("admin");
     const target = await otherMember(user.orgId, user.id, userId);
-    // Sessions cascade, so they're signed out at once. History keeps their name (actor_name snapshot).
-    await db.delete(users).where(eq(users.id, target.id));
+    // Soft delete: they can't sign in and drop off the team, but the account row stays for history.
+    await db.transaction(async (tx) => {
+      await tx.update(users).set({ deletedAt: new Date(), emailAlerts: false }).where(eq(users.id, target.id));
+      await tx.delete(sessions).where(eq(sessions.userId, target.id)); // signed out at once
+      await tx.delete(passwordResets).where(eq(passwordResets.userId, target.id));
+    });
     revalidatePath("/team");
-    return { ok: `${target.name} removed.` };
+    return { ok: `${target.name} removed. Their history is kept.` };
   });
 }
 
 export async function toggleAlerts(userId: string): Promise<FormState> {
   return handle(async () => {
     const user = await requireUser("admin");
-    const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.orgId, user.orgId)));
+    const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.orgId, user.orgId), isNull(users.deletedAt)));
     if (!target) throw new CustodyError("User not found.");
     await db.update(users).set({ emailAlerts: !target.emailAlerts }).where(eq(users.id, target.id));
     revalidatePath("/team");

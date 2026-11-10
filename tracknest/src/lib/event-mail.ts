@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { db, withOrg } from "@/db";
 import { assetEvents, assets, checkouts, customers, emailTemplates, organizations, persons, reservations, users, type EventType } from "@/db/schema";
 import { deliver } from "./alerts";
@@ -106,7 +106,7 @@ export async function sendEventEmails({
     ? await db
         .select({ email: users.email })
         .from(users)
-        .where(and(eq(users.orgId, orgId), inArray(users.role, ["manager", "admin", "owner"]), eq(users.emailAlerts, true)))
+        .where(and(eq(users.orgId, orgId), inArray(users.role, ["manager", "admin", "owner"]), eq(users.emailAlerts, true), isNull(users.deletedAt)))
     : [];
 
   let sent = 0;

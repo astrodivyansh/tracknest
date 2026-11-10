@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt, lte, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, sql, type SQL } from "drizzle-orm";
 import { db, withOrg } from "@/db";
 import { alertLog, assetRecords, assets, checkouts, inventoryItems, customers, maintenance, organizations, persons, reservations, users, warranties, type AlertSettings } from "@/db/schema";
 import { endOfDayIn, fmtDate } from "./format";
@@ -179,7 +179,7 @@ async function orgAlerts(org: { id: string; name: string; tz: string; settings: 
     const managers = await db
       .select({ email: users.email, name: users.name })
       .from(users)
-      .where(and(eq(users.orgId, org.id), inArray(users.role, ["manager", "admin", "owner"]), eq(users.emailAlerts, true)));
+      .where(and(eq(users.orgId, org.id), inArray(users.role, ["manager", "admin", "owner"]), eq(users.emailAlerts, true), isNull(users.deletedAt)));
     const body = sections
       .filter(([, lines]) => lines.length > 0)
       .map(([title, lines]) => `${title}\n${lines.map((x) => `• ${x}`).join("\n")}`)
