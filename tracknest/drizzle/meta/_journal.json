@@ -169,6 +169,13 @@
       "when": 1794300229741,
       "tag": "0023_soft_delete_users",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794305515140,
+      "tag": "0024_subscriptions",
+      "breakpoints": true
     }
   ]
 }

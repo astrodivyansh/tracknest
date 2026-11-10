@@ -665,3 +665,78 @@ export const assetRecordLinks = pgTable(
   },
   (t) => [uniqueIndex("asset_record_links_uq").on(t.recordId, t.assetId), index("asset_record_links_asset_idx").on(t.assetId)],
 );
+
+export const SUBSCRIPTION_STATES = ["active", "paused", "cancelled"] as const;
+export type SubscriptionState = (typeof SUBSCRIPTION_STATES)[number];
+
+// Software and services paid for again every few months (lib/subscriptions.ts). Tags are SUB-000001.
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: id(),
+    orgId: orgId(),
+    tag: text("tag").notNull(),
+    name: text("name").notNull(),
+    vendor: text("vendor"),
+    plan: text("plan"),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(), // billed each period
+    currency: text("currency").notNull(), // 3-letter code; many software bills are in USD
+    periodMonths: integer("period_months").notNull(), // 1 monthly … 12 yearly
+    nextDueOn: date("next_due_on").notNull(), // next recharge; moves on one period with each payment
+    autoRenew: boolean("auto_renew").notNull().default(false),
+    seats: integer("seats"),
+    ownerId: uuid("owner_id").references(() => persons.id), // gets the reminder emails
+    remindDays: integer("remind_days").notNull().default(7),
+    state: text("state", { enum: SUBSCRIPTION_STATES }).notNull().default("active"),
+    notes: text("notes"),
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("subscriptions_org_tag_uq").on(t.orgId, t.tag), index("subscriptions_due_idx").on(t.orgId, t.state, t.nextDueOn)],
+);
+
+// Every recharge, permanent like custody history: the app role can't update or delete these.
+export const subscriptionPayments = pgTable(
+  "subscription_payments",
+  {
+    id: id(),
+    orgId: orgId(),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => subscriptions.id),
+    paidOn: date("paid_on").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    periodFrom: date("period_from").notNull(), // the due date this payment covered
+    periodTo: date("period_to").notNull(), // the next due date it set
+    reference: text("reference"), // invoice or order number
+    notes: text("notes"),
+    // Optional invoice (PDF or image), stored like asset files.
+    invoiceKey: text("invoice_key"),
+    invoiceName: text("invoice_name"),
+    invoiceType: text("invoice_type"),
+    invoiceSize: integer("invoice_size"),
+    actorName: text("actor_name").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("subscription_payments_sub_idx").on(t.subscriptionId, t.paidOn)],
+);
+
+// Who or what uses a subscription: an asset (e.g. a laptop's licence) or a person (a seat).
+export const subscriptionLinks = pgTable(
+  "subscription_links",
+  {
+    id: id(),
+    orgId: orgId(),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id").references(() => assets.id),
+    personId: uuid("person_id").references(() => persons.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("subscription_links_asset_uq").on(t.subscriptionId, t.assetId),
+    uniqueIndex("subscription_links_person_uq").on(t.subscriptionId, t.personId),
+  ],
+);

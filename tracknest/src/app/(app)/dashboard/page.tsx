@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, asc, between, count, eq, inArray, isNull, lt, lte, ne, sql, sum } from "drizzle-orm";
 import { db, withOrg } from "@/db";
-import { assets, categories, checkouts, maintenance, reservations, users, warranties } from "@/db/schema";
+import { assets, categories, checkouts, maintenance, reservations, subscriptions, users, warranties } from "@/db/schema";
 import { AlertCalendar, type CalendarItem } from "@/components/dashboard/alert-calendar";
 import { Feeds, type FeedItem } from "@/components/dashboard/feeds";
 import { ValueChart } from "@/components/dashboard/value-chart";
@@ -106,6 +106,12 @@ export default async function Dashboard({ searchParams }: PageProps<"/dashboard"
             .innerJoin(assets, eq(assets.id, warranties.assetId))
             .where(and(live, inMonth(warranties.expiresOn)))
         ).map((r): CalendarItem => ({ date: r.date, kind: "warranty", label: `${r.tag} · warranty ends`, href: `/assets/${r.assetId}` })),
+        ...(
+          await tx
+            .select({ date: subscriptions.nextDueOn, id: subscriptions.id, tag: subscriptions.tag, name: subscriptions.name })
+            .from(subscriptions)
+            .where(and(eq(subscriptions.state, "active"), inMonth(subscriptions.nextDueOn)))
+        ).map((r): CalendarItem => ({ date: r.date, kind: "subscription", label: `${r.tag} · ${r.name} recharge`, href: `/subscriptions/${r.id}` })),
         ...(await datesInRange(tx, `${month}-01`, monthEnd)).map(
           (r): CalendarItem => ({ date: r.date, kind: "reminder", label: `${r.tag} · ${r.label}`, href: `/assets/${r.assetId}` }),
         ),

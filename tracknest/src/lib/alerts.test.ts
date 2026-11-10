@@ -22,6 +22,7 @@ async function collect(now = NOW, fail?: string) {
   await runAlerts({
     now,
     origin: "https://app.test",
+    orgId: actor.orgId,
     send: async (m) => {
       if (m.to === fail) throw new Error("smtp down");
       mails.push(m);

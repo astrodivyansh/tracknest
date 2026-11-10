@@ -1,7 +1,7 @@
 import { and, asc, eq, gte, inArray, isNull, lt, lte, sql, type SQL } from "drizzle-orm";
 import { db, withOrg } from "@/db";
-import { alertLog, assetRecords, assets, checkouts, inventoryItems, customers, maintenance, organizations, persons, reservations, users, warranties, type AlertSettings } from "@/db/schema";
-import { endOfDayIn, fmtDate } from "./format";
+import { alertLog, assetRecords, assets, checkouts, inventoryItems, customers, maintenance, organizations, persons, reservations, subscriptions, users, warranties, type AlertSettings } from "@/db/schema";
+import { endOfDayIn, fmtDate, fmtMoney } from "./format";
 import { upcomingDates } from "./reminders";
 import { sendMail, type Mail } from "./mail";
 
@@ -34,10 +34,12 @@ export async function runAlerts({
   now = new Date(),
   send = sendMail,
   origin = process.env.APP_URL ?? "http://localhost:3000",
-}: { now?: Date; send?: (m: Mail) => Promise<void>; origin?: string } = {}) {
+  orgId,
+}: { now?: Date; send?: (m: Mail) => Promise<void>; origin?: string; orgId?: string } = {}) {
   const orgs = await db
     .select({ id: organizations.id, name: organizations.name, tz: organizations.timezone, settings: organizations.alertSettings, fyStartMonth: organizations.fyStartMonth })
-    .from(organizations);
+    .from(organizations)
+    .where(orgId ? eq(organizations.id, orgId) : undefined); // one org: lets tests skip every other test org
   let sent = 0;
   let failed = 0;
   for (const org of orgs) {
@@ -77,7 +79,7 @@ export async function deliver(orgId: string, { key, mail }: Alert, send: (m: Mai
 
 async function orgAlerts(org: { id: string; name: string; tz: string; settings: AlertSettings }, today: string, now: Date, origin: string) {
   const { maintenanceDays, warrantyDays } = org.settings;
-  const { overdue, dueToday, jobs, pickups, coming, expiring, lowStock, ending } = await withOrg(org.id, async (tx) => {
+  const { overdue, dueToday, jobs, pickups, coming, expiring, lowStock, ending, recharges } = await withOrg(org.id, async (tx) => {
     // Open loans with a due date in a range; person and customer holders bring their email.
     const loans = (range: SQL) =>
       tx
@@ -128,6 +130,23 @@ async function orgAlerts(org: { id: string; name: string; tz: string; settings: 
         .from(assetRecords)
         .where(and(inArray(assetRecords.kind, ["contract", "insurance"]), gte(assetRecords.endDate, today), lte(assetRecords.endDate, addDays(today, warrantyDays))))
         .orderBy(asc(assetRecords.endDate)),
+      // Each subscription has its own reminder window; overdue ones stay listed until recharged.
+      recharges: await tx
+        .select({
+          id: subscriptions.id,
+          tag: subscriptions.tag,
+          name: subscriptions.name,
+          amount: subscriptions.amount,
+          currency: subscriptions.currency,
+          dueOn: subscriptions.nextDueOn,
+          autoRenew: subscriptions.autoRenew,
+          owner: persons.name,
+          email: persons.email,
+        })
+        .from(subscriptions)
+        .leftJoin(persons, and(eq(persons.id, subscriptions.ownerId), isNull(persons.deletedAt)))
+        .where(and(eq(subscriptions.state, "active"), lte(subscriptions.nextDueOn, sql`${today}::date + ${subscriptions.remindDays}`)))
+        .orderBy(asc(subscriptions.nextDueOn)),
     };
   });
 
@@ -161,6 +180,27 @@ async function orgAlerts(org: { id: string; name: string; tz: string; settings: 
     });
   }
 
+  // To each subscription's owner: once when the reminder window opens, on the day, then weekly while overdue.
+  for (const r of recharges) {
+    if (!r.email) continue;
+    const bill = `${fmtMoney(r.amount, r.currency)}${r.autoRenew ? " (set to renew automatically: check the payment goes through)" : ""}`;
+    const late = Math.floor((Date.parse(today) - Date.parse(r.dueOn)) / 864e5);
+    const [key, subject, line] =
+      late > 0
+        ? [`sub-overdue:${r.id}:${r.dueOn}:${Math.floor((late - 1) / 7)}`, `Overdue: recharge ${r.name}`, `was due on ${plainDay(r.dueOn)} and hasn't been marked as recharged`]
+        : late === 0
+          ? [`sub-today:${r.id}:${r.dueOn}`, `Due today: recharge ${r.name}`, `is due for recharge today`]
+          : [`sub-soon:${r.id}:${r.dueOn}`, `Coming up: recharge ${r.name} by ${plainDay(r.dueOn)}`, `is due for recharge on ${plainDay(r.dueOn)}`];
+    alerts.push({
+      key,
+      mail: {
+        to: r.email,
+        subject,
+        text: `Hi ${r.owner},\n\n${r.name} (${r.tag}) ${line}.\nAmount: ${bill}\n\nOnce it's paid, mark it as recharged so the reminders stop:\n${origin}/subscriptions/${r.id}\n\n— ${org.name}`,
+      },
+    });
+  }
+
   // Daily summary to managers and up who haven't turned alerts off.
   const overdueJobs = jobs.filter((j) => j.dueDate! < today);
   const soonJobs = jobs.filter((j) => j.dueDate! >= today);
@@ -172,6 +212,10 @@ async function orgAlerts(org: { id: string; name: string; tz: string; settings: 
     [`Maintenance overdue (${overdueJobs.length})`, overdueJobs.map((j) => `${j.tag} ${j.name} — ${j.title}, was due ${plainDay(j.dueDate!)}\n  ${link(j.assetId)}`)],
     [`Warranties ending in the next ${warrantyDays} days (${expiring.length})`, expiring.map((w) => `${w.tag} ${w.name} — ${w.provider ?? "warranty"} ends ${plainDay(w.expiresOn)}\n  ${link(w.assetId)}`)],
     [`Contracts and insurance ending in the next ${warrantyDays} days (${ending.length})`, ending.map((r) => `${r.name} (${r.kind}) — ends ${plainDay(r.endDate!)}\n  ${origin}/records/${r.kind}/${r.id}`)],
+    [
+      `Software recharges due (${recharges.length})`,
+      recharges.map((r) => `${r.tag} ${r.name} — ${fmtMoney(r.amount, r.currency)}, ${r.dueOn < today ? "overdue since" : "due"} ${plainDay(r.dueOn)}\n  ${origin}/subscriptions/${r.id}`),
+    ],
     [`Low stock (${lowStock.length})`, lowStock.map((i) => `${i.name} — ${Number(i.quantity)} ${i.unit} left\n  ${origin}/inventory`)],
     [`Maintenance due in the next ${maintenanceDays} days (${soonJobs.length})`, soonJobs.map((j) => `${j.tag} ${j.name} — ${j.title}, due ${plainDay(j.dueDate!)}\n  ${link(j.assetId)}`)],
   ] as const;
