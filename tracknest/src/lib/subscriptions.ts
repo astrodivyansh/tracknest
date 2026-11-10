@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { and, count, eq, inArray, isNull, isNotNull, sql } from "drizzle-orm";
-import type { Tx } from "@/db";
-import { assets, persons, subscriptionLinks, subscriptionPayments, subscriptions } from "@/db/schema";
+import { and, count, desc, eq, inArray, isNull, isNotNull, sql } from "drizzle-orm";
+import { db, type Tx } from "@/db";
+import { assets, persons, subscriptionLinks, subscriptionPayments, subscriptions, users } from "@/db/schema";
+import { deliver } from "./alerts";
 import { CustodyError, type Actor } from "./custody";
 import { cleanName, detectType, MAX_FILE_BYTES } from "./files";
+import { fmtMoney } from "./format";
+import { sendMail, type Mail } from "./mail";
 import { addMonths } from "./maintenance";
 
 export const TAG_PREFIX = "SUB";
@@ -22,6 +25,10 @@ export function dueState(s: { nextDueOn: string; remindDays: number; state: stri
   if (s.nextDueOn === today) return "today" as const;
   return addDays(today, s.remindDays) >= s.nextDueOn ? ("soon" as const) : ("ok" as const);
 }
+
+/** Percent change from one amount to the next, to one decimal; null when there's nothing to compare. */
+export const priceChange = (before: string | number | null | undefined, after: string | number) =>
+  before === null || before === undefined || Number(before) === 0 ? null : Math.round(((Number(after) - Number(before)) / Number(before)) * 1000) / 10;
 
 export const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 
@@ -59,6 +66,8 @@ export async function recordRecharge(
     reference?: string | null;
     notes?: string | null;
     invoice?: Invoice | null;
+    /** Also make this amount the billing amount from now on (e.g. after a price rise). */
+    newBilling?: boolean;
   },
 ) {
   const s = await lockSubscription(tx, input.subscriptionId);
@@ -73,13 +82,22 @@ export async function recordRecharge(
     invoice = { invoiceKey: `${actor.orgId}/${randomUUID()}`, invoiceName: name, invoiceType: type.contentType, invoiceSize: input.invoice.bytes.length };
   }
   const next = addMonths(s.nextDueOn, s.periodMonths);
+  const amount = input.amount ?? s.amount;
+  // Compared with the last payment, or the billing amount the first time.
+  const [last] = await tx
+    .select({ amount: subscriptionPayments.amount })
+    .from(subscriptionPayments)
+    .where(and(eq(subscriptionPayments.subscriptionId, s.id), eq(subscriptionPayments.currency, s.currency)))
+    .orderBy(desc(subscriptionPayments.paidOn), desc(subscriptionPayments.recordedAt))
+    .limit(1);
+  const before = last?.amount ?? s.amount;
   const [payment] = await tx
     .insert(subscriptionPayments)
     .values({
       orgId: actor.orgId,
       subscriptionId: s.id,
       paidOn: input.paidOn,
-      amount: input.amount ?? s.amount,
+      amount,
       currency: s.currency,
       periodFrom: s.nextDueOn,
       periodTo: next,
@@ -90,8 +108,11 @@ export async function recordRecharge(
     })
     .returning();
   // A paused subscription that gets paid is in use again.
-  await tx.update(subscriptions).set({ nextDueOn: next, state: "active" }).where(eq(subscriptions.id, s.id));
-  return payment;
+  await tx
+    .update(subscriptions)
+    .set({ nextDueOn: next, state: "active", ...(input.newBilling && { amount }) })
+    .where(eq(subscriptions.id, s.id));
+  return { ...payment, before, change: priceChange(before, amount), subscription: s };
 }
 
 /** Links assets (by tag) and people to a subscription. People take seats, so they can't exceed `seats`. */
@@ -127,4 +148,36 @@ export async function linkToSubscription(tx: Tx, actor: Actor, input: { subscrip
     if (n > s.seats) throw new CustodyError(`${s.name} has ${s.seats} seat${s.seats === 1 ? "" : "s"}; that would assign ${n}. Raise the seat count first.`);
   }
   return linked;
+}
+
+/** Emails managers (alerts on) when a recharge cost more than the last one. Once per payment. */
+export async function notifyPriceRise(
+  org: { id: string; name: string },
+  p: { id: string; amount: string; currency: string; before: string; change: number | null; subscription: { id: string; tag: string; name: string } },
+  origin: string,
+  send: (m: Mail) => Promise<void> = sendMail,
+) {
+  if (p.change === null || p.change <= 0) return 0;
+  const managers = await db
+    .select({ email: users.email, name: users.name })
+    .from(users)
+    .where(and(eq(users.orgId, org.id), inArray(users.role, ["manager", "admin", "owner"]), eq(users.emailAlerts, true), isNull(users.deletedAt)));
+  const s = p.subscription;
+  let sent = 0;
+  for (const m of managers) {
+    const r = await deliver(
+      org.id,
+      {
+        key: `sub-price:${p.id}:${m.email.toLowerCase()}`,
+        mail: {
+          to: m.email,
+          subject: `Price rise: ${s.name} went up ${p.change}%`,
+          text: `Hi ${m.name},\n\n${s.name} (${s.tag}) was just recharged for ${fmtMoney(p.amount, p.currency)}, up ${p.change}% from ${fmtMoney(p.before, p.currency)}.\n\n${origin}/subscriptions/${s.id}\n\n— ${org.name}`,
+        },
+      },
+      send,
+    );
+    if (r === "sent") sent++;
+  }
+  return sent;
 }

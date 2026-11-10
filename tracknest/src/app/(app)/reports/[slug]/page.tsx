@@ -5,7 +5,7 @@ import { REPORT_SCHEDULES } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
 import { PrintButton } from "@/components/print-button";
 import { canEdit, requireUser } from "@/lib/auth";
-import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtMoney, isoDateIn } from "@/lib/format";
 import { fyBounds, fyLabel, REPORTS, runReport, totals, type Cell, type Column } from "@/lib/reports";
 import { btn, btnSecondary, card, h1, input, label, td, th } from "@/lib/ui";
 import { saveReport } from "../actions";
@@ -35,6 +35,7 @@ export default async function ReportPage({ params, searchParams }: PageProps<"/r
     if (c.kind === "money") return fmtMoney(v as string | number, user.currency);
     if (c.kind === "date") return v instanceof Date ? fmtDate(v, user.timezone) : fmtDate(v as string, "UTC"); // plain dates have no time
     if (c.kind === "datetime") return fmtDateTime(v as Date, user.timezone);
+    if (c.kind === "number") return Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
     return String(v);
   };
   const right = (c: Column) => (c.kind === "money" || c.kind === "number" ? "text-right" : "");
@@ -83,6 +84,19 @@ export default async function ReportPage({ params, searchParams }: PageProps<"/r
             </label>
             <button className={btnSecondary}>Apply</button>
           </form>
+        )}
+        {report.upcoming && (
+          <div className="flex gap-2 pb-0.5 text-sm">
+            {[30, 60, 90].map((n) => {
+              const today = isoDateIn(new Date(), user.timezone);
+              const to = new Date(Date.parse(`${today}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+              return (
+                <Link key={n} href={`/reports/${report.slug}?from=${today}&to=${to}`} className={btnSecondary}>
+                  Next {n} days
+                </Link>
+              );
+            })}
+          </div>
         )}
 
         {fiscal && (

@@ -16,6 +16,9 @@ import {
   persons,
   reservations,
   sites,
+  subscriptionLinks,
+  subscriptionPayments,
+  subscriptions,
   warranties,
   type RecordKind,
 } from "@/db/schema";
@@ -163,4 +166,37 @@ export const EXPORTS: Record<string, Table> = {
   contracts: records("contract", "Contracts and licences"),
   insurance: records("insurance", "Insurance"),
   funding: records("funding", "Funding"),
+  subscriptions: {
+    label: "Software subscriptions",
+    // The first columns match the subscriptions import, so a file can go back in.
+    header: ["Name", "Vendor", "Plan", "Amount", "Currency", "Every (months)", "Next recharge", "Auto-renew", "Seats", "Owner", "Remind days", "Notes", "Tag", "Status", "Linked assets", "Seat holders"],
+    rows: async (tx) => {
+      const rows = await tx.select({ s: subscriptions, owner: persons.name }).from(subscriptions).leftJoin(persons, eq(persons.id, subscriptions.ownerId)).orderBy(asc(subscriptions.name)).limit(MAX_ROWS);
+      const links = await tx
+        .select({ id: subscriptionLinks.subscriptionId, tag: assets.tag, person: persons.name })
+        .from(subscriptionLinks)
+        .leftJoin(assets, eq(assets.id, subscriptionLinks.assetId))
+        .leftJoin(persons, eq(persons.id, subscriptionLinks.personId));
+      return rows.map(({ s, owner }) => {
+        const mine = links.filter((l) => l.id === s.id);
+        return [
+          s.name, s.vendor, s.plan, s.amount, s.currency, s.periodMonths, s.nextDueOn, s.autoRenew ? "yes" : "no", s.seats, owner, s.remindDays, s.notes,
+          s.tag, s.state, mine.flatMap((l) => (l.tag ? [l.tag] : [])).join(" "), mine.flatMap((l) => (l.person ? [l.person] : [])).join("; "),
+        ];
+      });
+    },
+  },
+  "subscription-payments": {
+    label: "Software recharges",
+    header: ["Paid on", "Tag", "Name", "Amount", "Currency", "Period from", "Period to", "Invoice no.", "Notes", "Recorded by"],
+    rows: async (tx) =>
+      (
+        await tx
+          .select({ p: subscriptionPayments, tag: subscriptions.tag, name: subscriptions.name })
+          .from(subscriptionPayments)
+          .innerJoin(subscriptions, eq(subscriptions.id, subscriptionPayments.subscriptionId))
+          .orderBy(desc(subscriptionPayments.paidOn))
+          .limit(MAX_ROWS)
+      ).map(({ p, tag, name }) => [p.paidOn, tag, name, p.amount, p.currency, p.periodFrom, p.periodTo, p.reference, p.notes, p.actorName]),
+  },
 };

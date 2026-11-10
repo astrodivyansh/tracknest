@@ -10,7 +10,7 @@ import { PrintButton } from "@/components/print-button";
 import { appOrigin, requireUser } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtMoney, isoDateIn } from "@/lib/format";
 import { can } from "@/lib/permissions";
-import { dueState, monthlyCost, periodLabel } from "@/lib/subscriptions";
+import { dueState, monthlyCost, periodLabel, priceChange } from "@/lib/subscriptions";
 import { btn, btnSecondary, card, h1, h2, input, label, td, th } from "@/lib/ui";
 import { linkAction, rechargeAction, unlinkAction, updateSubscription } from "../actions";
 import { DUE_BADGE, SubscriptionFields } from "../subscription-fields";
@@ -122,6 +122,9 @@ export default async function SubscriptionPage({ params }: PageProps<"/subscript
               Notes
               <input name="notes" className={input} />
             </label>
+            <label className="flex items-center gap-2 text-sm text-foreground sm:col-span-2">
+              <input type="checkbox" name="newBilling" /> The price changed: use this amount for future recharges
+            </label>
             <button className={btn}>Record recharge</button>
           </ActionForm>
         </section>
@@ -141,7 +144,10 @@ export default async function SubscriptionPage({ params }: PageProps<"/subscript
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {payments.map((p) => (
+              {payments.map((p, i) => {
+                const prev = payments.slice(i + 1).find((q) => q.currency === p.currency);
+                const change = prev ? priceChange(prev.amount, p.amount) : null;
+                return (
                 <tr key={p.id}>
                   <td className={`${td} whitespace-nowrap`}>{fmtDate(p.paidOn, "UTC")}</td>
                   <td className={`${td} whitespace-nowrap`}>
@@ -149,7 +155,11 @@ export default async function SubscriptionPage({ params }: PageProps<"/subscript
                   </td>
                   <td className={`${td} text-right whitespace-nowrap`}>
                     {fmtMoney(p.amount, p.currency)}
-                    {Number(p.amount) !== Number(s.amount) && p.currency === s.currency && <span className="ml-1 text-xs text-muted-foreground">(billing now {fmtMoney(s.amount, s.currency)})</span>}
+                    {change !== null && change !== 0 && (
+                      <span className={`ml-1 rounded px-1.5 py-0.5 text-xs ${change > 0 ? "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300" : "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300"}`}>
+                        {change > 0 ? "▲" : "▼"} {Math.abs(change)}%
+                      </span>
+                    )}
                   </td>
                   <td className={td}>
                     {p.reference}
@@ -165,7 +175,8 @@ export default async function SubscriptionPage({ params }: PageProps<"/subscript
                     {p.actorName} · {fmtDateTime(p.recordedAt, user.timezone)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {payments.length === 0 && (
                 <tr>
                   <td colSpan={5} className={`${td} text-muted-foreground`}>

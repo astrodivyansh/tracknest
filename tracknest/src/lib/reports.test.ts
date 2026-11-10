@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, withOrg } from "@/db";
-import { alertLog, assets, categories, checkouts, customers, organizations, persons, savedReports, users } from "@/db/schema";
+import { alertLog, assets, categories, checkouts, customers, organizations, persons, savedReports, subscriptions, users } from "@/db/schema";
 import { startAudit } from "./audits";
 import { changeStatus, checkOut, type Actor } from "./custody";
 import type { Mail } from "./mail";
@@ -11,6 +11,7 @@ import { isDue, sendScheduledReports } from "./saved-reports";
 import { importAssets } from "./import";
 import { completeMaintenance, scheduleMaintenance } from "./maintenance";
 import { REPORTS, reportRange, runReport, totals } from "./reports";
+import { recordRecharge } from "./subscriptions";
 
 let actor: Actor;
 const ctx = { tz: "Asia/Kolkata", from: "2000-01-01", to: "2100-01-01" };
@@ -43,6 +44,11 @@ beforeAll(async () => {
     await changeStatus(tx, actor, { assetId: laptop.id, to: "broken", reason: "dropped" });
     await changeStatus(tx, actor, { assetId: laptop.id, to: "available", reason: "fixed" });
     await startAudit(tx, actor, { name: "Count" });
+    const [sub] = await tx
+      .insert(subscriptions)
+      .values({ orgId: org.id, tag: "SUB-000001", name: "Office suite", amount: "1200.00", currency: "INR", periodMonths: 1, nextDueOn: "2099-01-01", createdBy: "Admin" })
+      .returning();
+    await recordRecharge(tx, actor, { subscriptionId: sub.id, paidOn: "2026-01-01" });
   });
 });
 

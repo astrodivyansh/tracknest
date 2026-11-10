@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // The sidebar remembers open/collapsed in a cookie (set by components/ui/sidebar.tsx).
     <SidebarProvider defaultOpen={jar.get("sidebar_state")?.value !== "false"}>
       <AppSidebar isAdmin={isAdmin(user)} canEdit={can(user, "add")} counts={counts} logoVersion={user.logoVersion} orgName={user.orgName} disabled={user.disabled} />
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <AppHeader user={{ name: user.name, orgName: user.orgName, role: user.role }} canEdit={can(user, "add")} />
         <main className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-6 print:max-w-none print:p-0">{children}</main>
       </SidebarInset>

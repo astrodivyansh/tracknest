@@ -5,7 +5,10 @@ import { assets, organizations, persons, subscriptionPayments, subscriptions, us
 import { runAlerts } from "./alerts";
 import type { Actor } from "./custody";
 import type { Mail } from "./mail";
-import { dueState, linkToSubscription, nextSubscriptionTag, recordRecharge } from "./subscriptions";
+import { IMPORTERS } from "./import-more";
+import { REPORTS } from "./reports";
+import { dueDates } from "./subscription-reports";
+import { dueState, linkToSubscription, nextSubscriptionTag, notifyPriceRise, priceChange, recordRecharge } from "./subscriptions";
 
 const stamp = Date.now();
 const ownerEmail = `sub-owner-${stamp}@test.local`;
@@ -99,5 +102,50 @@ describe("subscriptions", () => {
     const weekOn = await at("2032-06-18");
     expect(weekOn.find((m) => m.to === ownerEmail)?.subject).toBe("Overdue: recharge Zoom");
     expect(weekOn.some((m) => m.text.includes("Paused tool"))).toBe(false);
+  });
+
+  it("flags a price rise, can adopt it as the new billing amount, and tells managers once", async () => {
+    const s = await newSub({ name: "Slack", amount: "1000.00", nextDueOn: "2031-05-01", periodMonths: 1 });
+    const first = await run((tx) => recordRecharge(tx, actor, { subscriptionId: s.id, paidOn: "2031-05-01" }));
+    expect(first.change).toBe(0); // same as the billing amount
+    const rise = await run((tx) => recordRecharge(tx, actor, { subscriptionId: s.id, paidOn: "2031-06-01", amount: "1150.00", newBilling: true }));
+    expect(rise).toMatchObject({ before: "1000.00", change: 15 });
+    expect((await run((tx) => tx.select().from(subscriptions).where(eq(subscriptions.id, s.id))))[0].amount).toBe("1150.00");
+    const mails: Mail[] = [];
+    const org = { id: actor.orgId, name: "Subs" };
+    expect(await notifyPriceRise(org, rise, "https://app.test", async (m) => void mails.push(m))).toBe(1);
+    expect(mails[0]).toMatchObject({ to: managerEmail, subject: "Price rise: Slack went up 15%" });
+    expect(await notifyPriceRise(org, rise, "https://app.test", async (m) => void mails.push(m))).toBe(0); // once per payment
+    expect(priceChange("200", "150")).toBe(-25);
+    expect(priceChange(null, "150")).toBeNull();
+  });
+
+  it("forecasts every recharge in a period, repeating monthly ones", () => {
+    expect(dueDates({ nextDueOn: "2031-01-31", periodMonths: 1 }, "2031-04-30")).toEqual(["2031-01-31", "2031-02-28", "2031-03-31", "2031-04-30"]);
+    expect(dueDates({ nextDueOn: "2031-06-01", periodMonths: 12 }, "2031-04-30")).toEqual([]);
+  });
+
+  it("reports spend per vendor in each currency, and recharges with their change", async () => {
+    await newSub({ name: "Figma", vendor: "Figma", amount: "45.00", currency: "USD", periodMonths: 1, nextDueOn: "2031-07-01" });
+    await newSub({ name: "Figma AI", vendor: "figma", amount: "120.00", currency: "USD", periodMonths: 12, nextDueOn: "2031-07-01" });
+    const report = (slug: string) => REPORTS.find((r) => r.slug === slug)!;
+    const spend = await run((tx) => report("subscription-spend").run(tx, { tz: "UTC", from: "2031-01-01", to: "2031-12-31" }, 100));
+    expect(spend.find((r) => r[0] === "Vendor" && r[1] === "Figma")).toEqual(["Vendor", "Figma", "USD", 2, 55, 660]);
+    const paid = await run((tx) => report("subscription-payments").run(tx, { tz: "UTC", from: "2031-06-01", to: "2031-06-30" }, 100));
+    expect(paid.find((r) => r[2] === "Slack")?.[6]).toBe(15);
+    const renewals = await run((tx) => report("subscription-renewals").run(tx, { tz: "UTC", from: "2031-07-01", to: "2031-09-30" }, 1000));
+    expect(renewals.filter((r) => r[3] === "Figma").map((r) => r[0])).toEqual(["2031-07-01", "2031-08-01", "2031-09-01"]);
+  });
+
+  it("imports subscriptions from CSV, matching owners and skipping ones on file", async () => {
+    const imp = (text: string) => run((tx) => IMPORTERS.subscriptions.run(tx, actor, text));
+    const csv = `name,amount,currency,every,next_recharge,owner,auto_renew\r\nAdobe CC,5000,,Yearly,31/12/2031,${ownerEmail},yes\r\nNotion,8,usd,3,2031-09-01,,\r\n`;
+    expect(await imp(csv)).toMatchObject({ imported: 2, skipped: 0 });
+    expect(await imp(csv)).toMatchObject({ imported: 0, skipped: 2 });
+    const [adobe] = await run((tx) => tx.select().from(subscriptions).where(eq(subscriptions.name, "Adobe CC")));
+    expect(adobe).toMatchObject({ currency: "INR", periodMonths: 12, nextDueOn: "2031-12-31", autoRenew: true, tag: expect.stringMatching(/^SUB-\d{6}$/) });
+    expect(adobe.ownerId).not.toBeNull();
+    await expect(imp("name,amount,every,next_recharge\r\nX,10,fortnightly,2031-01-01\r\n")).rejects.toThrow(/every/);
+    await expect(imp("name,amount,every,next_recharge,owner\r\nY,10,monthly,2031-01-01,nobody@x.com\r\n")).rejects.toThrow(/nobody@x.com/);
   });
 });

@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { asc, eq, ilike, isNull, or } from "drizzle-orm";
+import { asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { withOrg } from "@/db";
-import { persons, subscriptions } from "@/db/schema";
+import { persons, subscriptionLinks, subscriptions } from "@/db/schema";
 import { ActionForm } from "@/components/action-form";
 import { requireUser } from "@/lib/auth";
 import { fmtDate, fmtMoney, isoDateIn } from "@/lib/format";
@@ -17,7 +17,11 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
   const like = `%${q}%`;
   const { rows, people } = await withOrg(user.orgId, async (tx) => ({
     rows: await tx
-      .select({ s: subscriptions, owner: persons.name })
+      .select({
+        s: subscriptions,
+        owner: persons.name,
+        assigned: sql<number>`(select count(*) from ${subscriptionLinks} where ${subscriptionLinks.subscriptionId} = ${subscriptions.id} and ${subscriptionLinks.personId} is not null)::int`,
+      })
       .from(subscriptions)
       .leftJoin(persons, eq(persons.id, subscriptions.ownerId))
       .where(q ? or(ilike(subscriptions.tag, like), ilike(subscriptions.name, like), ilike(subscriptions.vendor, like)) : undefined)
@@ -74,11 +78,12 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
               <th className={th}>Every</th>
               <th className={th}>Next recharge</th>
               <th className={th}>Owner</th>
+              <th className={th}>Seats</th>
               <th className={th}>Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map(({ s, owner }) => {
+            {rows.map(({ s, owner, assigned }) => {
               const due = dueState(s, today);
               return (
                 <tr key={s.id} className="hover:bg-muted/40">
@@ -96,6 +101,10 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
                   <td className={td}>{periodLabel(s.periodMonths)}</td>
                   <td className={`${td} whitespace-nowrap`}>{s.state === "cancelled" ? "—" : fmtDate(s.nextDueOn, "UTC")}</td>
                   <td className={td}>{owner ?? "—"}</td>
+                  <td className={`${td} whitespace-nowrap`}>
+                    {s.seats ? `${assigned} of ${s.seats}` : assigned || "—"}
+                    {s.seats && s.state === "active" && assigned < s.seats && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">({s.seats - assigned} unused)</span>}
+                  </td>
                   <td className={td}>
                     <span className={`rounded px-2 py-0.5 text-xs whitespace-nowrap ${DUE_BADGE[due][1]}`}>{due === "off" ? (s.state === "paused" ? "Paused" : "Cancelled") : DUE_BADGE[due][0]}</span>
                   </td>
@@ -104,7 +113,7 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className={`${td} text-muted-foreground`}>
+                <td colSpan={9} className={`${td} text-muted-foreground`}>
                   {q ? "No subscription matches that search." : "No subscriptions yet."}
                 </td>
               </tr>
