@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, withOrg } from "@/db";
 import { assetEvents, assets, categories, customFields, locations, organizations, persons, sites, users } from "@/db/schema";
 import type { Actor } from "./custody";
@@ -59,6 +59,14 @@ describe("people import", () => {
     expect(await run((tx) => importPeople(tx, actor, csv))).toMatchObject({ imported: 2, skipped: 1 });
     expect(await run((tx) => importPeople(tx, actor, csv))).toMatchObject({ imported: 0, skipped: 3 });
     expect(await run((tx) => tx.select().from(persons))).toHaveLength(2);
+  });
+
+  it("reads designation, brand and work location", async () => {
+    const csv = "name,email,designation,company,work location\nAsha,asha@x.com,Sales Executive,Acme,WFH\nDev,dev@x.com,,,Work from office\n";
+    await run((tx) => importPeople(tx, actor, csv));
+    const rows = await run((tx) => tx.select().from(persons).where(inArray(persons.name, ["Asha", "Dev"])).orderBy(persons.name));
+    expect(rows.map((p) => [p.designation, p.brand, p.workLocation])).toEqual([["Sales Executive", "Acme", "home"], [null, null, "office"]]);
+    await expect(run((tx) => importPeople(tx, actor, "name,work_location\nZed,moon\n"))).rejects.toThrow(/office or home/);
   });
 });
 

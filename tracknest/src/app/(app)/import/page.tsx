@@ -40,6 +40,7 @@ export default async function ImportPage() {
           action={importPeopleAction}
           notes={[
             "Only “name” is required. Missing departments are created.",
+            "“work_location” is office or home (also accepts WFO and WFH).",
             "People whose email or employee ID is already on file are skipped, so you can re-upload safely.",
           ]}
         />

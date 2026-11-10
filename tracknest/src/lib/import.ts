@@ -1,7 +1,7 @@
 import { inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Tx } from "@/db";
-import { assetEvents, assets, categories, customFields, departments, locations, persons, sites } from "@/db/schema";
+import { assetEvents, assets, categories, customFields, departments, locations, persons, sites, WORK_LOCATIONS } from "@/db/schema";
 import { assetSchema } from "./assets";
 import { parseCsv } from "./csv";
 import { parseCustom } from "./custom-fields";
@@ -23,12 +23,15 @@ const ASSET_HEADERS: Record<string, string> = {
 const PERSON_HEADERS: Record<string, string> = {
   name: "name", fullname: "name", email: "email", emailaddress: "email",
   employeeid: "employeeId", empid: "employeeId", employeeno: "employeeId", department: "department",
+  designation: "designation", jobtitle: "designation", title: "designation",
+  brand: "brand", company: "brand", worklocation: "workLocation", workmode: "workLocation",
 };
 
 export const ASSET_TEMPLATE =
   "tag,name,category,brand,model,serial,purchase_date,cost,purchased_from,site,location,department,condition,notes\r\n" +
   ",Dell Latitude 5440,Laptops,Dell,Latitude 5440,8XK2L93,2026-04-15,85000,Croma,Head Office,Floor 2,Finance,Good,\r\n";
-export const PERSON_TEMPLATE = "name,email,employee_id,department\r\nPriya Sharma,priya@example.com,E1042,Finance\r\n";
+export const PERSON_TEMPLATE =
+  "name,email,employee_id,designation,brand,department,work_location\r\nPriya Sharma,priya@example.com,E1042,Sales Executive,Acme Retail,Finance,office\r\n";
 
 const norm = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -166,11 +169,23 @@ export async function importAssets(tx: Tx, actor: Actor, text: string) {
   return { imported: values.length, skipped: 0, ignored };
 }
 
+// "Office", "Work from office", "WFO" → office; anything else is reported as an error.
+const WORK_LOCATION_ALIASES: Record<string, (typeof WORK_LOCATIONS)[number]> = {
+  office: "office", workfromoffice: "office", wfo: "office", home: "home", workfromhome: "home", wfh: "home", remote: "home",
+};
+
 const personRow = z.object({
   name: reqText("Name"),
   email: z.union([z.literal(""), z.email("Enter a valid email")]).optional().transform((v) => v?.toLowerCase() || null),
   employeeId: optText,
   department: optText,
+  designation: optText,
+  brand: optText,
+  workLocation: z
+    .string()
+    .optional()
+    .transform((v): string | null => (v?.trim() ? (WORK_LOCATION_ALIASES[norm(v)] ?? v) : null))
+    .pipe(z.enum(WORK_LOCATIONS, "Work location must be office or home").nullable()),
 });
 
 /** Rows whose email or employee ID already exists (or repeats in the file) are skipped, so re-uploading is safe. */
@@ -205,6 +220,9 @@ export async function importPeople(tx: Tx, actor: Actor, text: string) {
           name: p.name,
           email: p.email,
           employeeId: p.employeeId,
+          designation: p.designation,
+          brand: p.brand,
+          workLocation: p.workLocation,
           departmentId: p.department ? depts.get(key(p.department))! : null,
         })),
       );
