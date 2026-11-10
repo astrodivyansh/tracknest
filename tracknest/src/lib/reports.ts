@@ -18,6 +18,7 @@ import {
 } from "@/db/schema";
 import { DISPOSAL_LABEL, STATUS_LABEL } from "./custody";
 import { DEP_LABEL, depreciate, type DepRule } from "./depreciation";
+import { SUBSCRIPTION_REPORTS } from "./subscription-reports";
 import { describeEvent, endOfDayIn, isoDateIn, startOfDayIn } from "./format";
 
 /** How a column is shown on screen and written to CSV. Money columns get a total row. */
@@ -32,6 +33,7 @@ export type Report = {
   dateRange?: boolean; // shows from/to inputs; other reports ignore them
   asOf?: boolean; // shows one "as of" date input, passed as `to`
   fiscalYear?: boolean; // shows a financial-year picker (the org's financial year), passed as from/to
+  upcoming?: boolean; // with dateRange: defaults to today + 90 days instead of this year so far
   columns: Column[];
   /** Columns that depend on the org's setup (custom fields); defaults to `columns`. */
   columnsFor?: (tx: Tx) => Promise<Column[]>;
@@ -431,6 +433,7 @@ export const REPORTS: Report[] = [
       ).map((r) => [r.started, r.name, r.state === "open" ? "Open" : "Closed", r.expected, r.found, r.missing, r.unexpected, r.closed, r.by]);
     },
   },
+  ...SUBSCRIPTION_REPORTS,
 ];
 
 /**
@@ -481,9 +484,10 @@ export function fiscalRange(sp: Record<string, string | string[] | undefined>, t
 }
 
 /** Reads from/to (YYYY-MM-DD) from search params; defaults to this year so far in the org's timezone. */
-export function reportRange(sp: Record<string, string | string[] | undefined>, tz: string) {
+export function reportRange(sp: Record<string, string | string[] | undefined>, tz: string, upcoming = false) {
   const today = isoDateIn(new Date(), tz);
   const day = (v: unknown, fallback: string) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : fallback);
+  if (upcoming) return { from: day(sp.from, today), to: day(sp.to, new Date(Date.parse(`${today}T00:00:00Z`) + 90 * 864e5).toISOString().slice(0, 10)) };
   return { from: day(sp.from, `${today.slice(0, 4)}-01-01`), to: day(sp.to, today) };
 }
 
@@ -501,7 +505,7 @@ type Params = Record<string, string | string[] | undefined>;
  */
 export async function runReport(tx: Tx, report: Report, sp: Params, tz: string, limit: number, fyStartMonth = 4) {
   const fiscal = report.fiscalYear ? fiscalRange(sp, tz, fyStartMonth) : null;
-  const range = fiscal ?? reportRange(sp, tz);
+  const range = fiscal ?? reportRange(sp, tz, report.upcoming);
   const all = report.columnsFor ? await report.columnsFor(tx) : report.columns;
   const picked = new Set([sp.col ?? []].flat().map(Number));
   const keep = all.map((_, i) => i).filter((i) => picked.size === 0 || picked.has(i));

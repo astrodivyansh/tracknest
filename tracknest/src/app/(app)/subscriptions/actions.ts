@@ -7,12 +7,12 @@ import { z } from "zod";
 import { withOrg } from "@/db";
 import { SUBSCRIPTION_STATES, subscriptionLinks, subscriptions } from "@/db/schema";
 import { parseTags } from "@/lib/audits";
-import { requireUser, type CurrentUser } from "@/lib/auth";
+import { appOrigin, requireUser, type CurrentUser } from "@/lib/auth";
 import { CustodyError } from "@/lib/custody";
 import { fields, handle, optId, optText, reqText, type FormState } from "@/lib/form";
 import { allow } from "@/lib/permissions";
 import { deleteObject, putObject } from "@/lib/storage";
-import { linkToSubscription, nextSubscriptionTag, recordRecharge } from "@/lib/subscriptions";
+import { linkToSubscription, nextSubscriptionTag, notifyPriceRise, recordRecharge } from "@/lib/subscriptions";
 
 const actorOf = (u: CurrentUser) => ({ id: u.id, name: u.name, orgId: u.orgId });
 const wholeNumber = (what: string, min: number, max: number) =>
@@ -72,26 +72,31 @@ export async function rechargeAction(id: string, _: FormState, form: FormData): 
           .pipe(z.string().regex(/^\d{1,10}(\.\d{1,2})?$/, "Enter the amount paid, e.g. 12500 or 19.99").nullable()),
         reference: optText,
         notes: optText,
+        newBilling: z.literal("on").optional().transform((v) => v === "on"),
       })
       .parse(fields(form));
     const file = form.get("invoice");
     const invoice = file instanceof File && file.size > 0 ? { filename: file.name, bytes: new Uint8Array(await file.arrayBuffer()) } : null;
     // Bytes go to storage inside the transaction; a failure afterwards removes them again.
     let stored: string | null = null;
+    let p;
     try {
-      await withOrg(user.orgId, async (tx) => {
-        const p = await recordRecharge(tx, actorOf(user), { subscriptionId: id, ...input, invoice });
-        if (invoice && p.invoiceKey) {
-          await putObject(p.invoiceKey, invoice.bytes);
-          stored = p.invoiceKey;
+      p = await withOrg(user.orgId, async (tx) => {
+        const paid = await recordRecharge(tx, actorOf(user), { subscriptionId: id, ...input, invoice });
+        if (invoice && paid.invoiceKey) {
+          await putObject(paid.invoiceKey, invoice.bytes);
+          stored = paid.invoiceKey;
         }
+        return paid;
       });
     } catch (e) {
       if (stored) await deleteObject(stored);
       throw e;
     }
+    await notifyPriceRise({ id: user.orgId, name: user.orgName }, p, await appOrigin());
     revalidatePath("/", "layout");
-    return { ok: "Recharge recorded. The next due date has moved on." };
+    const rise = p.change !== null && p.change > 0 ? ` That's ${p.change}% more than last time; managers have been told.` : "";
+    return { ok: `Recharge recorded. The next due date has moved on.${rise}` };
   });
 }
 

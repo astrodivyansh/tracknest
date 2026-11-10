@@ -1,7 +1,7 @@
 import { eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Tx } from "@/db";
-import { assetRecords, assets, categories, customers, departments, inventoryItems, locations, maintenance, MAINTENANCE_KINDS, sites, warranties, RECORD_KINDS } from "@/db/schema";
+import { assetRecords, assets, categories, customers, departments, inventoryItems, locations, maintenance, MAINTENANCE_KINDS, organizations, persons, sites, subscriptions, warranties, RECORD_KINDS } from "@/db/schema";
 import { assetSchema, optDate } from "./assets";
 import { recordEvent, type Actor } from "./custody";
 import { optText, reqText } from "./form";
@@ -9,6 +9,7 @@ import { fail, key, normDate, readRows } from "./import";
 import { moveStock } from "./inventory";
 import { addMonths } from "./maintenance";
 import type { Action } from "./permissions";
+import { nextSubscriptionTag } from "./subscriptions";
 
 type Result = { imported: number; skipped: number; ignored: string[] };
 export type Importer = {
@@ -47,6 +48,9 @@ async function assetsByTag(tx: Tx, tags: string[], lines: number[]) {
   if (errors.length) fail(errors);
   return map;
 }
+
+// "Monthly", "yearly", "annual" or a number of months → months.
+const PERIOD_WORDS: Record<string, number> = { monthly: 1, month: 1, quarterly: 3, quarter: 3, halfyearly: 6, halfyear: 6, yearly: 12, annual: 12, annually: 12, year: 12 };
 
 export const IMPORTERS: Record<string, Importer> = {
   customers: {
@@ -305,6 +309,82 @@ export const IMPORTERS: Record<string, Importer> = {
           .values({ orgId: actor.orgId, name: r.name, sku: r.sku, unit: r.unit ?? "pcs", minQuantity: r.minQuantity, unitCost: r.unitCost, locationId: locationIds[i], notes: r.notes })
           .returning();
         if (Number(r.quantity) > 0) await moveStock(tx, actor, { itemId: item.id, kind: "received", quantity: Number(r.quantity), note: "Imported opening stock" });
+        imported++;
+      }
+      return { imported, skipped: parsed.length - imported, ignored };
+    },
+  },
+  subscriptions: {
+    title: "Software subscriptions",
+    needs: "records",
+    template:
+      "name,vendor,plan,amount,currency,every,next_recharge,auto_renew,seats,owner,remind_days,notes\r\n" +
+      "Microsoft 365,Microsoft,Business Standard,12500,INR,yearly,2027-03-31,no,25,,15,\r\n" +
+      "Zoom,Zoom,Pro,15.99,USD,monthly,2026-12-05,yes,,,7,\r\n",
+    notes: [
+      "“name”, “amount”, “every” and “next_recharge” are required. Each gets a SUB tag automatically.",
+      "“every” is monthly, quarterly, half-yearly, yearly or a number of months. “currency” defaults to yours.",
+      "“owner” is a person's email or name, already under People. Subscriptions whose name is already on file are skipped.",
+    ],
+    run: async (tx, actor, text) => {
+      const { rows, ignored, lines } = readRows(text, {
+        name: "name", software: "name", vendor: "vendor", plan: "plan", amount: "amount", billing: "amount", billingamount: "amount", cost: "amount",
+        currency: "currency", every: "every", period: "every", billingperiod: "every", everymonths: "every",
+        nextrecharge: "nextDueOn", nextdue: "nextDueOn", duedate: "nextDueOn", renewaldate: "nextDueOn",
+        autorenew: "autoRenew", seats: "seats", licences: "seats", licenses: "seats", owner: "owner", reminddays: "remindDays", notes: "notes",
+      });
+      const [org] = await tx.select({ currency: organizations.currency }).from(organizations).where(eq(organizations.id, actor.orgId));
+      const whole = (what: string, min: number, max: number) =>
+        z.union([z.literal(""), z.coerce.number(`${what} must be a whole number`).int(`${what} must be a whole number`).min(min).max(max, `${what} can be at most ${max}`)]).optional().transform((v) => (v === "" || v === undefined ? null : v));
+      const parsed = parseAll(
+        rows.map((r) => ({
+          ...r,
+          amount: plainMoney(r.amount),
+          currency: r.currency?.trim() || org.currency,
+          every: String(PERIOD_WORDS[(r.every ?? "").toLowerCase().replace(/[^a-z]/g, "")] ?? r.every ?? ""),
+          nextDueOn: normDate(r.nextDueOn),
+        })),
+        lines,
+        z.object({
+          name: reqText("Name"),
+          vendor: optText,
+          plan: optText,
+          amount: z.string("Amount is required").regex(/^\d{1,10}(\.\d{1,2})?$/, "Amount must be a number like 12500 or 19.99"),
+          currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Currency must be a 3-letter code like INR or USD"),
+          every: z.coerce
+            .number("“every” must be monthly, quarterly, half-yearly, yearly or a number of months")
+            .int("“every” must be a whole number of months")
+            .min(1, "“every” must be monthly, quarterly, half-yearly, yearly or a number of months")
+            .max(60, "“every” can be at most 60 months"),
+          nextDueOn: z.iso.date("next_recharge must be a date like 2027-03-31"),
+          autoRenew: z.string().optional().transform((v) => /^(y|yes|true|1|auto)$/i.test(v?.trim() ?? "")),
+          seats: whole("Seats", 1, 100000),
+          owner: optText,
+          remindDays: whole("Remind days", 0, 90),
+          notes: optText,
+        }),
+      );
+      const people = await tx.select({ id: persons.id, name: persons.name, email: persons.email }).from(persons).where(isNull(persons.deletedAt));
+      const errors: string[] = [];
+      const ownerIds = parsed.map((r, i) => {
+        if (!r.owner) return null;
+        const matches = people.filter((p) => key(p.email ?? "") === key(r.owner!) || key(p.name) === key(r.owner!));
+        if (matches.length === 1) return matches[0].id;
+        errors.push(`Row ${lines[i]}: ${matches.length ? `more than one person is called “${r.owner}”; use their email` : `no one under People matches “${r.owner}”`}.`);
+        return null;
+      });
+      if (errors.length) fail(errors);
+      const seen = new Set((await tx.select({ n: subscriptions.name }).from(subscriptions)).map((s) => key(s.n)));
+      let imported = 0;
+      for (const [i, r] of parsed.entries()) {
+        if (seen.has(key(r.name))) continue;
+        seen.add(key(r.name));
+        await tx.insert(subscriptions).values({
+          orgId: actor.orgId,
+          tag: await nextSubscriptionTag(tx, actor.orgId),
+          name: r.name, vendor: r.vendor, plan: r.plan, amount: r.amount, currency: r.currency, periodMonths: r.every, nextDueOn: r.nextDueOn,
+          autoRenew: r.autoRenew, seats: r.seats, ownerId: ownerIds[i], remindDays: r.remindDays ?? 7, notes: r.notes, createdBy: actor.name,
+        });
         imported++;
       }
       return { imported, skipped: parsed.length - imported, ignored };
